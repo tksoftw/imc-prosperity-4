@@ -13,8 +13,8 @@ Backtester: https://github.com/jmerle/imc-prosperity-3-backtester
 Visualizer: https://github.com/jmerle/imc-prosperity-3-visualizer
 
 Other links: 
-1. https://github.com/CarterT27/imc-prosperity-3
-2. IMC Prosperity Sauce: https://docs.google.com/document/d/19EbxM8mSGAYGZRq-pM7Xl0-lz_gh-e6UFoKsKXoI2o8/edit
+1. Example IMC Prosperity Repo (9th overall, 2nd US): https://github.com/CarterT27/imc-prosperity-3
+2. IMC Prosperity Sauce (9th overall, 2nd US): https://docs.google.com/document/d/1oYBRozQtJ6HgfmLOf4HesRJFKZLATWrYdkxZDLT47cU/edit?tab=t.0
 
 Supported Libraries:
 [pandas](https://pandas.pydata.org/)
