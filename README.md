@@ -14,6 +14,7 @@ Visualizer: https://github.com/jmerle/imc-prosperity-3-visualizer
 
 Other links: 
 1. https://github.com/CarterT27/imc-prosperity-3
+2. IMC Prosperity Sauce: https://docs.google.com/document/d/19EbxM8mSGAYGZRq-pM7Xl0-lz_gh-e6UFoKsKXoI2o8/edit
 
 Supported Libraries:
 [pandas](https://pandas.pydata.org/)
