@@ -8,6 +8,11 @@ Quickstart:
 1.  `pip install -e .`
 2. Download [CSV editor](https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv) and [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 
+
+Backtester: https://github.com/jmerle/imc-prosperity-3-backtester
+Visualizer: https://github.com/jmerle/imc-prosperity-3-visualizer
+
+
 Supported Libraries:
 [pandas](https://pandas.pydata.org/)
 
