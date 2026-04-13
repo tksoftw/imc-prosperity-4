@@ -6,7 +6,7 @@ Discord Link: https://discord.gg/SABeB8uKxd
 Quickstart:
 
 1.  `pip install -e .`
-2. Download https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv
+2. Download [CSV editor](https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv) and [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 
 Supported Libraries:
 [pandas](https://pandas.pydata.org/)
