@@ -12,6 +12,8 @@ Quickstart:
 Backtester: https://github.com/jmerle/imc-prosperity-3-backtester
 Visualizer: https://github.com/jmerle/imc-prosperity-3-visualizer
 
+Other links: 
+1. https://github.com/CarterT27/imc-prosperity-3
 
 Supported Libraries:
 [pandas](https://pandas.pydata.org/)
