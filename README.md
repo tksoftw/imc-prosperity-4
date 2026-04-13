@@ -17,14 +17,4 @@ Other links:
 2. IMC Prosperity Sauce (9th overall, 2nd US): https://docs.google.com/document/d/1oYBRozQtJ6HgfmLOf4HesRJFKZLATWrYdkxZDLT47cU/edit?tab=t.0
 
 Supported Libraries:
-[pandas](https://pandas.pydata.org/)
-
-[NumPy](https://numpy.org/)
-
-[statistics](https://docs.python.org/3.9/library/statistics.html)
-
-[math](https://docs.python.org/3.9/library/math.html)
-
-[typing](https://docs.python.org/3.9/library/typing.html)
-
-[jsonpickle](https://jsonpickle.github.io/)
+[pandas](https://pandas.pydata.org/) [NumPy](https://numpy.org/) [statistics](https://docs.python.org/3.9/library/statistics.html) [math](https://docs.python.org/3.9/library/math.html) [typing](https://docs.python.org/3.9/library/typing.html) [jsonpickle](https://jsonpickle.github.io/)
