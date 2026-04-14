@@ -1,5 +1,5 @@
 from datamodel import OrderDepth, UserId, TradingState, Order
-
+from typing import List, Dict
 
 ORDER_INC = 9 #number of orders to do at a time
 MAX_POS = 75
