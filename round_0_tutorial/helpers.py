@@ -62,6 +62,4 @@ class ProductAnalysis:
         return sum(self.order_depth.buy_orders.values())
     @property
     def total_sell_volume(self) -> int:
-        if len(self.order_depth.buy_orders) == 0 or len(self.order_depth.sell_orders) == 0:
-            return 0
-        return (self.min_sell_price + self.max_buy_price) // 2
+        return sum(self.order_depth.sell_orders.values())
