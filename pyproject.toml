@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imc-prosperity-4"
+version = "0.1.0"
+description = "IMC Prosperity workspace with dashboard tooling"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "ipywidgets>=8.0.0",
+  "matplotlib>=3.8.0",
+  "orjson>=3.10.0",
+  "pandas>=2.0.0",
+  "plotly>=5.20.0",
+  "fastapi>=0.115.0",
+  "seaborn>=0.13.0",
+  "streamlit>=1.35.0",
+  "uvicorn>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+imc = "imc_prosperity.app:main"
+
+[dependency-groups]
+dev = []

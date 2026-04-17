@@ -43,7 +43,8 @@ class Trader:
                 sellprice = ask-1 if cur_position < 35 else ask-2
                 numbuy = max(0, min(ORDER_INC, MAX_POS - cur_position))
                 numsell = min(0, max(-ORDER_INC, -MAX_POS-cur_position))
-            elif(product=="INTARIAN_PEPPER_ROOT" and cur_position < MAX_POS):
+            elif(product=="INTARIAN_PEPPER_ROOT"):
+                continue
                 # buyprice = ask
                 buyprice = ask
                 available_volume = order_depth.sell_orders[ask]
