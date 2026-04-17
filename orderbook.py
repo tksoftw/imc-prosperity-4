@@ -331,18 +331,34 @@ def round_1_market() -> AuctionMarket:
     return market
 
 
+def test_orders(market: AuctionMarket, order1: Order, order2: Order) -> List[Dict[str, float]]:
+    market.add_orders([order1, order2])
+    results = market.trigger_all()
+    return results
+
 if __name__ == '__main__':
-    market = round_1_market()
-    maximizer = AuctionMaximizer(market)
-    
+    best_so_far = [
+        Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=30, quantity=9999, is_user=True),
+        Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=17, quantity=19999, is_user=True),
+    ]
+
+    o1 = Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=30, quantity=9999, is_user=True)
+    o2 = Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=17, quantity=19999, is_user=True)
+
+    results = test_orders(round_1_market(), o1, o2)
+    total_profit = sum(result['user_profit'] for result in results)
+    print(results, f"Total Profit: {total_profit}", sep='\n')
+    print("Difference from best os far:", total_profit - sum(x['user_profit'] for x in test_orders(round_1_market(), *best_so_far)))
+
+    #maximizer = AuctionMaximizer(market)
     # Let the solver find the global maximum mathematically
-    result = maximizer.best_profit_across_market()
+    # result = maximizer.best_profit_across_market()
+    # print(result)
+    # print(f"--- OPTIMAL STRATEGY ---")
+    # for symbol, best in result['best_by_symbol'].items():
+    #     if best:
+    #         print(f"{symbol}: {best['side']} {best['quantity']} @ {best['price']} -> Profit: {best['user_profit']}")
+    #     else:
+    #         print(f"{symbol}: No profitable trade available.")
     
-    print(f"--- OPTIMAL STRATEGY ---")
-    for symbol, best in result['best_by_symbol'].items():
-        if best:
-            print(f"{symbol}: {best['side']} {best['quantity']} @ {best['price']} -> Profit: {best['user_profit']}")
-        else:
-            print(f"{symbol}: No profitable trade available.")
-    
-    print(f"\nTotal Max PNL: {result['total_profit']}")
+    # print(f"\nTotal Max PNL: {result['total_profit']}")
