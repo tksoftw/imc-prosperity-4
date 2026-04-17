@@ -343,7 +343,7 @@ if __name__ == '__main__':
     ]
 
     o1 = Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=30, quantity=9999, is_user=True)
-    o2 = Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=17, quantity=19999, is_user=True)
+    o2 = Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=19, quantity=50999, is_user=True)
 
     results = test_orders(round_1_market(), o1, o2)
     total_profit = sum(result['user_profit'] for result in results)
