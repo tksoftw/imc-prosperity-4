@@ -348,7 +348,7 @@ if __name__ == '__main__':
     results = test_orders(round_1_market(), o1, o2)
     total_profit = sum(result['user_profit'] for result in results)
     print(results, f"Total Profit: {total_profit}", sep='\n')
-    print("Difference from best os far:", total_profit - sum(x['user_profit'] for x in test_orders(round_1_market(), *best_so_far)))
+    print("Difference from best so far:", total_profit - sum(x['user_profit'] for x in test_orders(round_1_market(), *best_so_far)))
 
     #maximizer = AuctionMaximizer(market)
     # Let the solver find the global maximum mathematically
