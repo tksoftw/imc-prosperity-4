@@ -73,8 +73,11 @@ class Trader:
         symbols as an input, and outputs a list of orders to be sent."""
         state_analysis = StateAnalysis(state)
         products = "EM"
-        emerald_analysis = ProductAnalysis(state_analysis, "EMERALDS")
-        tomato_analysis = ProductAnalysis(state_analysis, "TOMATOES")
+        #emerald_analysis = ProductAnalysis(state_analysis, "EMERALDS")
+        if "TOMATOES" in state.order_depths:
+            tomato_analysis = ProductAnalysis(state_analysis, "TOMATOES")
+        else:
+            tomato_analysis = None
         print("traderData: " + state.traderData)
         print("Observations: " + str(state.observations))
         # Orders to be placed on exchange matching engine
