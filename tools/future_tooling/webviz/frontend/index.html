@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webviz Fast Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; }
+      .wrap { padding: 12px; display: grid; gap: 10px; }
+      .controls { display: grid; grid-template-columns: 1fr 180px 1fr; gap: 10px; align-items: end; }
+      .row { display: grid; gap: 6px; }
+      label { font-size: 12px; color: #444; }
+      input, select { padding: 8px; border: 1px solid #ccc; border-radius: 8px; }
+      button { padding: 9px 12px; border-radius: 10px; border: 1px solid #bbb; background: #f7f7f7; cursor: pointer; }
+      .toggles { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      #marketChart { height: 480px; }
+      #pnlChart { height: 320px; }
+      pre { background: #0b1020; color: #dbe7ff; padding: 10px; border-radius: 10px; overflow: auto; }
+      #status { font-size: 12px; color: #555; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="controls">
+        <div class="row">
+          <label for="path">Log path</label>
+          <input id="path" value="logs/94304.log" />
+        </div>
+        <div class="row">
+          <label>&nbsp;</label>
+          <button id="loadBtn">Load</button>
+        </div>
+        <div class="row">
+          <label for="product">Product</label>
+          <select id="product"></select>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="row">
+          <label for="tmin">t_min</label>
+          <input id="tmin" type="number" />
+        </div>
+        <div class="row">
+          <label for="tmax">t_max</label>
+          <input id="tmax" type="number" />
+        </div>
+        <div class="row">
+          <div class="toggles">
+            <label><input type="checkbox" id="showDepth" checked /> depth</label>
+            <label><input type="checkbox" id="showTrades" checked /> trades</label>
+            <label><input type="checkbox" id="showPnl" checked /> pnl</label>
+          </div>
+        </div>
+      </div>
+
+      <div id="status"></div>
+      <div id="marketChart"></div>
+      <div id="pnlChart"></div>
+      <pre id="logs"></pre>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = { path: $("path").value, product: "", tmin: 0, tmax: 0 };
+
+      async function api(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+
+      function setStatus(text) { $("status").textContent = text; }
+
+      async function loadOptions() {
+        state.path = $("path").value.trim();
+        const data = await api(`/api/options?path=${encodeURIComponent(state.path)}`);
+        $("product").innerHTML = "";
+        for (const p of data.products) {
+          const opt = document.createElement("option");
+          opt.value = p;
+          opt.textContent = p;
+          $("product").appendChild(opt);
+        }
+        state.product = data.products[0];
+        state.tmin = data.min_ts;
+        state.tmax = data.max_ts;
+        $("product").value = state.product;
+        $("tmin").value = state.tmin;
+        $("tmax").value = state.tmax;
+        await refresh();
+      }
+
+      async function refresh() {
+        state.product = $("product").value;
+        state.tmin = Number($("tmin").value);
+        state.tmax = Number($("tmax").value);
+        const params = new URLSearchParams({
+          path: state.path,
+          product: state.product,
+          t_min: String(state.tmin),
+          t_max: String(state.tmax),
+          show_depth: String($("showDepth").checked),
+          show_trades: String($("showTrades").checked),
+          show_pnl: String($("showPnl").checked),
+        });
+        const data = await api(`/api/dashboard?${params.toString()}`);
+        await Plotly.react("marketChart", data.market_figure.data, data.market_figure.layout, { responsive: true });
+        if (data.pnl_figure) {
+          await Plotly.react("pnlChart", data.pnl_figure.data, data.pnl_figure.layout, { responsive: true });
+        } else {
+          $("pnlChart").innerHTML = "";
+        }
+        $("logs").textContent = data.logs.length ? JSON.stringify(data.logs, null, 2) : "No logs in window.";
+        setStatus(`Updated: product=${state.product} window=[${state.tmin}, ${state.tmax}] logs=${data.logs.length}`);
+      }
+
+      $("loadBtn").addEventListener("click", () => loadOptions().catch((e) => setStatus(`Error: ${e.message}`)));
+      $("product").addEventListener("change", () => refresh().catch((e) => setStatus(`Error: ${e.message}`)));
+      $("tmin").addEventListener("change", () => refresh().catch((e) => setStatus(`Error: ${e.message}`)));
+      $("tmax").addEventListener("change", () => refresh().catch((e) => setStatus(`Error: ${e.message}`)));
+      for (const id of ["showDepth", "showTrades", "showPnl"]) {
+        $(id).addEventListener("change", () => refresh().catch((e) => setStatus(`Error: ${e.message}`)));
+      }
+
+      loadOptions().catch((e) => setStatus(`Error: ${e.message}`));
+    </script>
+  </body>
+</html>

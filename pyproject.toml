@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imc-prosperity-4"
+version = "0.1.0"
+description = "IMC Prosperity workspace with dashboard tooling"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  # Core numerics (used by tools/allocation.py, tools/orderbook.py, notebooks)
+  "numpy>=1.26",
+  "pandas>=2.0",
+  # datamodel.py pickle wire format (required by every ROUND*/ trader)
+  "jsonpickle>=3.0",
+  # Plotting: matplotlib for tools/allocation.py --heatmap + notebooks;
+  # plotly for notebooks/log_visualizer.py and notebooks/round_0_tutorial.ipynb;
+  # seaborn only for notebooks/round1_outside_box_visuals.py.
+  "matplotlib>=3.8",
+  "plotly>=5.20",
+  "seaborn>=0.13",
+  # notebooks/log_visualizer.py uses ipywidgets in its interactive widget.
+  "ipywidgets>=8.0",
+  # tools/allocation_webviz/ FastAPI backend.
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "orjson>=3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+  # Only notebooks/round1_ml_strategy.ipynb needs sklearn.
+  "scikit-learn>=1.5",
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+py-modules = ["datamodel"]

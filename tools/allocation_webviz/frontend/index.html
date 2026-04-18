@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Allocation Optimizer</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel-2: #1f232c;
+        --border: #2a2f3a;
+        --text: #e6e8ec;
+        --muted: #9aa0a6;
+        --accent: #4ea1ff;
+        --accent-2: #ff7b72;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+      .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+      .sidebar { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 14px; }
+      .main { padding: 12px 16px; overflow-y: auto; }
+      h1 { font-size: 18px; margin: 2px 0 14px; }
+      h2 { font-size: 13px; color: var(--muted); margin: 14px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .cluster { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+      .cluster .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+      .cluster .del { background: transparent; border: none; color: var(--accent-2); cursor: pointer; font-size: 16px; line-height: 1; }
+      .row { display: grid; grid-template-columns: 70px 1fr 50px; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+      .row label { color: var(--muted); }
+      .row .val { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+      input[type="range"] { width: 100%; }
+      input[type="number"] { width: 100%; background: #0c0e13; border: 1px solid var(--border); color: var(--text); padding: 4px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+      button.primary { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: #253044; color: var(--text); cursor: pointer; }
+      button.primary:hover { background: #2f3c56; }
+      .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 10px; }
+      .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+      .metric .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .metric .v { font-size: 18px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+      .card .title { color: var(--muted); font-size: 12px; margin: 2px 4px 4px; }
+      #status { font-size: 11px; color: var(--muted); margin-top: 6px; }
+      .chart { width: 100%; height: 320px; }
+      .chart.tall { height: 420px; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <h1>Allocation Optimizer</h1>
+
+        <div class="row">
+          <label>Base floor</label>
+          <input type="range" id="baseFloor" min="0" max="10" value="0" />
+          <span class="val" id="baseFloorVal">0</span>
+        </div>
+
+        <h2>Clusters</h2>
+        <div id="clusters"></div>
+        <button class="primary" id="addCluster">+ Add cluster</button>
+
+        <h2>Probe</h2>
+        <div class="row">
+          <label>Probe z</label>
+          <input type="range" id="probeZ" min="0" max="100" value="36" />
+          <span class="val" id="probeZVal">36</span>
+        </div>
+
+        <div id="status"></div>
+      </aside>
+
+      <main class="main">
+        <div class="metrics">
+          <div class="metric"><div class="k">Total bids</div><div class="v" id="mTotal">—</div></div>
+          <div class="metric"><div class="k">Best (x,y,z)</div><div class="v" id="mBest">—</div></div>
+          <div class="metric"><div class="k">Best profit</div><div class="v" id="mProfit">—</div></div>
+          <div class="metric"><div class="k">Probe speed · rank</div><div class="v" id="mProbe">—</div></div>
+          <div class="metric"><div class="k">Probe profit @ best (x,y)</div><div class="v" id="mProbeProfit">—</div></div>
+        </div>
+
+        <div class="grid">
+          <div class="card"><div class="title">Bid histogram</div><div id="chartBids" class="chart"></div></div>
+          <div class="card"><div class="title">Speed curve by your z</div><div id="chartSpeed" class="chart"></div></div>
+          <div class="card"><div class="title">People above each z</div><div id="chartAbove" class="chart"></div></div>
+          <div class="card"><div class="title">Profit heatmap (x vs y)</div><div id="chartHeat" class="chart"></div></div>
+          <div class="card" style="grid-column: 1 / span 2;"><div class="title">3D profit surface</div><div id="chartSurface" class="chart tall"></div></div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        clusters: [
+          { id: 1, center: 99, size: 80, width: 1 },
+          { id: 2, center: 97, size: 110, width: 2 },
+          { id: 3, center: 0, size: 10, width: 0 },
+        ],
+        nextId: 4,
+        baseFloor: 0,
+        probeZ: 36,
+      };
+
+      const initialised = { bids: false, speed: false, above: false, heat: false, surface: false };
+      let debounceTimer = null;
+      let inFlight = false;
+      let pendingDirty = false;
+
+      function renderClusters() {
+        const host = $("clusters");
+        host.innerHTML = "";
+        state.clusters.forEach((c, idx) => {
+          const div = document.createElement("div");
+          div.className = "cluster";
+          div.innerHTML = `
+            <div class="head">
+              <span>Cluster #${idx + 1}</span>
+              <button class="del" title="Remove" data-remove="${c.id}">✕</button>
+            </div>
+            <div class="row">
+              <label>Center</label>
+              <input type="range" min="0" max="100" value="${c.center}" data-id="${c.id}" data-field="center" />
+              <span class="val" data-val="center-${c.id}">${c.center}</span>
+            </div>
+            <div class="row">
+              <label>Size</label>
+              <input type="number" min="0" value="${c.size}" data-id="${c.id}" data-field="size" />
+              <span class="val" data-val="size-${c.id}">${c.size}</span>
+            </div>
+            <div class="row">
+              <label>Width</label>
+              <input type="range" min="0" max="30" value="${c.width}" data-id="${c.id}" data-field="width" />
+              <span class="val" data-val="width-${c.id}">${c.width}</span>
+            </div>
+          `;
+          host.appendChild(div);
+        });
+
+        host.querySelectorAll("input[data-id]").forEach((el) => {
+          el.addEventListener("input", (e) => {
+            const id = Number(e.target.dataset.id);
+            const field = e.target.dataset.field;
+            const v = Number(e.target.value);
+            const c = state.clusters.find((x) => x.id === id);
+            if (!c) return;
+            c[field] = v;
+            const valEl = host.querySelector(`[data-val="${field}-${id}"]`);
+            if (valEl) valEl.textContent = v;
+            scheduleRefresh();
+          });
+        });
+        host.querySelectorAll("[data-remove]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const id = Number(e.target.dataset.remove);
+            state.clusters = state.clusters.filter((c) => c.id !== id);
+            renderClusters();
+            scheduleRefresh();
+          });
+        });
+      }
+
+      function scheduleRefresh() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(refresh, 120);
+      }
+
+      async function refresh() {
+        if (inFlight) { pendingDirty = true; return; }
+        inFlight = true;
+        $("status").textContent = "Computing…";
+        try {
+          const res = await fetch("/api/compute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clusters: state.clusters,
+              base_floor: state.baseFloor,
+              probe_z: state.probeZ,
+            }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          updateMetrics(data);
+          updateCharts(data);
+          $("status").textContent = `OK · ${data.total_bids} bids`;
+        } catch (err) {
+          $("status").textContent = "Error: " + err.message;
+        } finally {
+          inFlight = false;
+          if (pendingDirty) { pendingDirty = false; scheduleRefresh(); }
+        }
+      }
+
+      function updateMetrics(d) {
+        $("mTotal").textContent = d.total_bids;
+        $("mBest").textContent = `(${d.best.x}, ${d.best.y}, ${d.best.z})`;
+        $("mProfit").textContent = d.best.profit.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        $("mProbe").textContent = `${d.probe.speed.toFixed(4)} · ${d.probe.rank}/${d.probe.total}`;
+        $("mProbeProfit").textContent =
+          `${d.probe.profit.toLocaleString(undefined, { maximumFractionDigits: 0 })} @ (${d.probe.best_x},${d.probe.best_y})`;
+      }
+
+      const Z = Array.from({ length: 101 }, (_, i) => i);
+
+      function updateCharts(d) {
+        // 1. Bid histogram
+        Plotly.react(
+          "chartBids",
+          [{ x: Z, y: d.bids, type: "bar", marker: { color: "#4ea1ff" }, hovertemplate: "z=%{x}<br>count=%{y}<extra></extra>" }],
+          baseLayout({ x: "z", y: "count" }),
+          plotConfig(),
+        );
+
+        // 2. Speed curve
+        Plotly.react(
+          "chartSpeed",
+          [
+            { x: Z, y: d.speed_curve, type: "scatter", mode: "lines", line: { color: "#ffc857", width: 2 }, name: "speed", hovertemplate: "z=%{x}<br>speed=%{y:.4f}<extra></extra>" },
+            { x: [d.probe.z], y: [d.probe.speed], type: "scatter", mode: "markers", marker: { size: 10, color: "#ff7b72" }, name: "probe", hovertemplate: "probe z=%{x}<br>speed=%{y:.4f}<extra></extra>" },
+          ],
+          baseLayout({ x: "z", y: "speed", yRange: [0, 1] }),
+          plotConfig(),
+        );
+
+        // 3. People above each z
+        Plotly.react(
+          "chartAbove",
+          [{ x: Z, y: d.above_curve, type: "scatter", mode: "lines", fill: "tozeroy", line: { color: "#ff7b72" }, hovertemplate: "z=%{x}<br>above=%{y}<extra></extra>" }],
+          baseLayout({ x: "z", y: "above" }),
+          plotConfig(),
+        );
+
+        // 4. Profit heatmap: z already transposed server-side so axes are x,y
+        Plotly.react(
+          "chartHeat",
+          [
+            {
+              z: d.profit_grid,
+              type: "heatmap",
+              colorscale: "Viridis",
+              hovertemplate: "x=%{x}<br>y=%{y}<br>profit=%{z:.0f}<extra></extra>",
+              colorbar: { thickness: 10 },
+            },
+            {
+              x: [d.best.x],
+              y: [d.best.y],
+              type: "scatter",
+              mode: "markers+text",
+              marker: { size: 10, color: "#ff7b72", line: { color: "white", width: 1 } },
+              text: [`(${d.best.x},${d.best.y},${d.best.z})`],
+              textposition: "top right",
+              textfont: { color: "#ff7b72" },
+              hoverinfo: "skip",
+              showlegend: false,
+            },
+          ],
+          baseLayout({ x: "x", y: "y" }),
+          plotConfig(),
+        );
+
+        // 5. 3D surface
+        Plotly.react(
+          "chartSurface",
+          [{
+            z: d.profit_grid,
+            type: "surface",
+            colorscale: "Viridis",
+            showscale: false,
+            hovertemplate: "x=%{x}<br>y=%{y}<br>profit=%{z:.0f}<extra></extra>",
+          }],
+          {
+            paper_bgcolor: "#171a21",
+            plot_bgcolor: "#171a21",
+            margin: { l: 0, r: 0, t: 5, b: 0 },
+            scene: {
+              xaxis: { title: "x", color: "#e6e8ec", gridcolor: "#2a2f3a" },
+              yaxis: { title: "y", color: "#e6e8ec", gridcolor: "#2a2f3a" },
+              zaxis: { title: "profit", color: "#e6e8ec", gridcolor: "#2a2f3a" },
+              bgcolor: "#171a21",
+              uirevision: "persist",
+            },
+            font: { color: "#e6e8ec" },
+            uirevision: "persist",
+          },
+          plotConfig(),
+        );
+      }
+
+      function baseLayout({ x, y, yRange } = {}) {
+        return {
+          paper_bgcolor: "#171a21",
+          plot_bgcolor: "#171a21",
+          margin: { l: 48, r: 10, t: 6, b: 38 },
+          font: { color: "#e6e8ec", size: 11 },
+          xaxis: { title: x || "", gridcolor: "#2a2f3a", zerolinecolor: "#2a2f3a" },
+          yaxis: { title: y || "", gridcolor: "#2a2f3a", zerolinecolor: "#2a2f3a", range: yRange },
+          showlegend: false,
+          uirevision: "persist",
+        };
+      }
+
+      function plotConfig() {
+        return { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] };
+      }
+
+      $("baseFloor").addEventListener("input", (e) => {
+        state.baseFloor = Number(e.target.value);
+        $("baseFloorVal").textContent = state.baseFloor;
+        scheduleRefresh();
+      });
+      $("probeZ").addEventListener("input", (e) => {
+        state.probeZ = Number(e.target.value);
+        $("probeZVal").textContent = state.probeZ;
+        scheduleRefresh();
+      });
+      $("addCluster").addEventListener("click", () => {
+        state.clusters.push({ id: state.nextId++, center: 50, size: 40, width: 0 });
+        renderClusters();
+        scheduleRefresh();
+      });
+
+      renderClusters();
+      refresh();
+    </script>
+  </body>
+</html>

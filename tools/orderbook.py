@@ -331,24 +331,45 @@ def round_1_market() -> AuctionMarket:
     return market
 
 
-def test_orders(market: AuctionMarket, order1: Order, order2: Order) -> List[Dict[str, float]]:
-    market.add_orders([order1, order2])
+def test_orders(market: AuctionMarket, *orders) -> List[Dict[str, float]]:
+    market.add_orders(orders)
     results = market.trigger_all()
     return results
 
 if __name__ == '__main__':
     best_so_far = [
-        Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=30, quantity=9999, is_user=True),
+        #Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=30, quantity=9999, is_user=True),
         Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=17, quantity=19999, is_user=True),
     ]
-
-    o1 = Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=30, quantity=9999, is_user=True)
-    o2 = Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=19, quantity=50999, is_user=True)
-
-    results = test_orders(round_1_market(), o1, o2)
+    curr_best_profit = sum(x['user_profit'] for x in test_orders(round_1_market(), *best_so_far))
+    o1 = Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=19, quantity=50098, is_user=True)
+    results = test_orders(round_1_market(), o1)
     total_profit = sum(result['user_profit'] for result in results)
-    print(results, f"Total Profit: {total_profit}", sep='\n')
-    print("Difference from best os far:", total_profit - sum(x['user_profit'] for x in test_orders(round_1_market(), *best_so_far)))
+    print(total_profit, results)
+    # print(f"Current best profit:", curr_best_profit)
+    # input()
+    # MAX_PRICE = 100
+    # MAX_VOLUME = 50_000
+
+    # for i in range(18, MAX_PRICE):
+    #     for j in range(20_000,MAX_VOLUME):
+    #         #o1 = Order(symbol='DRYLAND_FLAX', side=Side.BUY, price=i, quantity=j, is_user=True)
+    #         o2 = Order(symbol='EMBER_MUSHROOM', side=Side.BUY, price=i, quantity=j, is_user=True)
+    #         orders = (o2, ) #, o2)
+
+    #         results = test_orders(round_1_market(), *orders)
+    #         total_profit = sum(result['user_profit'] for result in results)
+    #         if total_profit >= curr_best_profit:
+    #             if total_profit == curr_best_profit:
+    #                 print(f"New best profit found (tie): {total_profit} with orders:")
+    #             else:
+    #                 print(f"New best profit found: {total_profit} with orders:")
+    #             for order in orders:
+    #                 print(f"  {order.side} {order.quantity} @ {order.price}")
+    #             input()
+    #         print(i,j, total_profit)
+            #print(results, f"Total Profit: {total_profit}", sep='\n')
+            #print("Difference from best so far:", total_profit - curr_best_profit)
 
     #maximizer = AuctionMaximizer(market)
     # Let the solver find the global maximum mathematically

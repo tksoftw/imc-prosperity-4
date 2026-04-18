@@ -1,6 +1,6 @@
-from datamodel import OrderDepth, UserId, TradingState, Order
+from typing import List
 
-
+from datamodel import OrderDepth, TradingState, Order
 ORDER_INC = 10 #number of orders to do at a time
 MAX_POS = 80
 
@@ -37,16 +37,17 @@ class Trader:
             cur_position = int(state.position.get(product, 0))
 
             #Osmium is risky, man.
-            
+            sellprice = None
+            buyprice = None
             if(product=="ASH_COATED_OSMIUM" and spread>2):
-                buyprice = bid+1 if cur_position > -35 else bid+2
-                sellprice = ask-1 if cur_position < 35 else ask-2
+                delta = 1 + abs(cur_position) // 35
+                buyprice = bid + delta
+                sellprice = ask - delta
                 numbuy = max(0, min(ORDER_INC, MAX_POS - cur_position))
                 numsell = min(0, max(-ORDER_INC, -MAX_POS-cur_position))
             elif(product=="INTARIAN_PEPPER_ROOT" and cur_position < MAX_POS):
                 # buyprice = ask
                 buyprice = ask
-                available_volume = order_depth.sell_orders[ask]
                 # numbuy = max(0, min(MAX_POS - cur_position, abs(available_volume)))
                 numbuy = MAX_POS-cur_position
                 numsell = 0
@@ -61,9 +62,9 @@ class Trader:
             #buy x in [0,maxpossible]
             #sell x in [-maxpossible,0]
             
-            if(numbuy):
+            if numbuy and buyprice is not None:
                 orders.append(Order(product, buyprice, numbuy))  
-            if(numsell):
+            if numsell and sellprice is not None:
                 orders.append(Order(product, sellprice, numsell))
 
             result[product] = orders
