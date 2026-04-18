@@ -1,6 +1,22 @@
 # IMC Prosperity 4
 
-[Official Discord Server](https://discord.gg/SABeB8uKxd) | [Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki)
+[Official Discord Server](https://discord.gg/SABeB8uKxd) |
+[Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki)
+
+---
+
+## Contents
+
+- [Setup (WSL + uv)](#setup-wsl--uv)
+  - [1. Install WSL (Windows only — macOS users skip to step 2)](#1-install-wsl-windows-only--macos-users-skip-to-step-2)
+  - [2. Install uv](#2-install-uv)
+  - [3. Clone + sync](#3-clone--sync)
+  - [4. Activate the venv](#4-activate-the-venv)
+  - [5. Editor extensions (optional, VS Code / Cursor)](#5-editor-extensions-optional-vs-code--cursor)
+- [Running things](#running-things)
+- [External tools](#external-tools)
+- [Reference repos & writeups](#reference-repos--writeups)
+- [Libraries allowed in submissions](#libraries-allowed-in-submissions)
 
 ---
 
@@ -8,7 +24,7 @@
 
 This project runs on Linux/WSL using [uv](https://docs.astral.sh/uv/) for
 dependency management. On Windows, do **all** of this inside WSL, not
-PowerShell — Streamlit/Uvicorn/matplotlib tooling is much happier on Linux.
+PowerShell. We primarally need WSL for the [backtester](https://github.com/tksoftw/prosperity_rust_backtester), but Streamlit/Uvicorn/matplotlib tooling is much easier on Linux.
 
 ### 1. Install WSL (Windows only — **macOS users skip to step 2**)
 
@@ -90,27 +106,28 @@ deactivate      # exit
 ```bash
 vv # activate venv
 
+# rank trader backtests
+python3 tools/rank_traders.py --round 1
+
 # Allocation optimizer (interactive, no reruns). See tools/allocation_webviz/README.md
 uvicorn tools.allocation_webviz.server:app --reload --port 8001
 
 # CLI heatmap
 python tools/allocation.py --heatmap
-
-# Notebooks
-jupyter lab
 ```
 
 ---
 
 ## External tools
 
-- Backtester: <https://github.com/jmerle/imc-prosperity-3-backtester>
-- Visualizer: <https://github.com/jmerle/imc-prosperity-3-visualizer>
+- [Rust Backtester (fork)](https://github.com/tksoftw/prosperity_rust_backtester)
+- [Online Visualizer/Leaderboard](https://prosperity.equirag.com/)
 
 ## Reference repos & writeups
 
 - [CarterT27/imc-prosperity-3](https://github.com/CarterT27/imc-prosperity-3) (9th overall, 2nd US)
 - [Prosperity 3 Sauce doc](https://docs.google.com/document/d/1oYBRozQtJ6HgfmLOf4HesRJFKZLATWrYdkxZDLT47cU/edit?tab=t.0) (9th overall, 2nd US)
+- [Hedgehogs writeup](examples/hedgehogs.md) (2nd overall, very good, detailed writeup)
 
 ## Libraries allowed in submissions
 
