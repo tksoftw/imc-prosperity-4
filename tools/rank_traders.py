@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Iterable
 
 
+DEFAULT_ROUND = 1
+
 ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = ROOT / "runs"
 BACKTESTER = Path.home() / ".cargo" / "bin" / "rust_backtester"
@@ -176,7 +178,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-r",
         "--round",
         type=int,
-        default=1,
+        default=DEFAULT_ROUND,
         metavar="N",
         help="round number (default: %(default)s); selects ROUND<N>/ and data/ROUND<N>/",
     )
