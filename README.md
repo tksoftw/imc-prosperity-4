@@ -41,7 +41,7 @@ Reboot, launch `Ubuntu` from the Start menu, create your user, then:
 sudo apt update && sudo apt install -y build-essential git curl
 ```
 
-> **Cisco AnyConnect / corporate VPN users:** WSL2's default NAT networking
+> **Cisco AnyConnect users:** WSL2's default NAT networking
 > breaks while AnyConnect is connected (DNS + `curl` fail inside WSL). Fix it
 > by switching WSL to mirrored networking. Create `C:\Users\<you>\.wslconfig`
 > (e.g. `C:\Users\tk\.wslconfig`) containing:
@@ -126,6 +126,12 @@ uvicorn tools.allocation_webviz.server:app --reload --port 8001
 
 # CLI heatmap
 python tools/allocation.py --heatmap
+
+# add a package to uv
+uv add jsontreeview
+
+# sync packages
+uv sync
 ```
 
 ---
