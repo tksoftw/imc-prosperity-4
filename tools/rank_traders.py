@@ -1,36 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 
-
-ROUND = 1
-
-
-
-if len(sys.argv) == 2:
-    try:
-        ROUND = int(sys.argv[1])
-    except ValueError:
-        print(f"Invalid round number: {sys.argv[1]}")
-        raise SystemExit(1)
-elif len(sys.argv) > 2:
-    print("Usage: rank_round1_traders.py [ROUND]")
-    raise SystemExit(1)
-
-
-
 ROOT = Path(__file__).resolve().parent.parent
-ROUND_DIR = ROOT / f"ROUND{ROUND}"
-DATA_DIR = ROOT / "data" / f"ROUND{ROUND}"
 RUNS_DIR = ROOT / "runs"
 BACKTESTER = Path.home() / ".cargo" / "bin" / "rust_backtester"
 
@@ -61,10 +42,10 @@ def discover_traders(round_dir: Path) -> list[Path]:
     return traders
 
 
-def discover_days(data_dir: Path) -> list[int]:
+def discover_days(data_dir: Path, round_num: int) -> list[int]:
     days = []
-    for path in sorted(data_dir.glob(f"prices_round_{ROUND}_day_*.csv")):
-        match = re.search(rf"prices_round_{ROUND}_day_(-?\d+)\.csv$", path.name)
+    for path in sorted(data_dir.glob(f"prices_round_{round_num}_day_*.csv")):
+        match = re.search(rf"prices_round_{round_num}_day_(-?\d+)\.csv$", path.name)
         if match:
             days.append(int(match.group(1)))
     return sorted(days)
@@ -77,9 +58,15 @@ def stable_slug(path: Path, round_dir: Path) -> str:
     return f"{stem[:50]}_{digest}"
 
 
-def run_backtest(trader_path: Path, day: int) -> dict:
-    dataset = DATA_DIR / f"prices_round_{ROUND}_day_{day}.csv"
-    run_id = f"rank_round{ROUND}__{stable_slug(trader_path, ROUND_DIR)}__d{day}"
+def run_backtest(
+    trader_path: Path,
+    day: int,
+    round_num: int,
+    round_dir: Path,
+    data_dir: Path,
+) -> dict:
+    dataset = data_dir / f"prices_round_{round_num}_day_{day}.csv"
+    run_id = f"rank_round{round_num}__{stable_slug(trader_path, round_dir)}__d{day}"
     run_dir = RUNS_DIR / run_id
     metrics_path = run_dir / "metrics.json"
 
@@ -120,12 +107,18 @@ def run_backtest(trader_path: Path, day: int) -> dict:
     return json.loads(metrics_path.read_text())
 
 
-def evaluate_trader(trader_path: Path, days: Iterable[int]) -> TraderResult:
+def evaluate_trader(
+    trader_path: Path,
+    days: Iterable[int],
+    round_num: int,
+    round_dir: Path,
+    data_dir: Path,
+) -> TraderResult:
     totals_by_day: dict[int, float] = {}
     per_product_by_day: dict[int, dict[str, float]] = {}
     trade_count_by_day: dict[int, int] = {}
     for day in days:
-        metrics = run_backtest(trader_path, day)
+        metrics = run_backtest(trader_path, day, round_num, round_dir, data_dir)
         totals_by_day[day] = float(metrics["final_pnl_total"])
         per_product_by_day[day] = {
             product: float(value)
@@ -171,13 +164,69 @@ def print_table(results: list[TraderResult], days: list[int], round_dir: Path) -
         print(fmt(row))
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="rank_traders",
+        description=(
+            "Run every trader under ROUND{N}/ against every day in data/ROUND{N}/ "
+            "using the rust backtester, then print a ranked PnL table."
+        ),
+    )
+    parser.add_argument(
+        "-r",
+        "--round",
+        type=int,
+        default=1,
+        metavar="N",
+        help="round number (default: %(default)s); selects ROUND<N>/ and data/ROUND<N>/",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        nargs="+",
+        metavar="DAY",
+        help="restrict to these days (default: every day auto-discovered)",
+    )
+    parser.add_argument(
+        "--trader",
+        action="append",
+        dest="traders",
+        metavar="NAME",
+        help="filter to traders whose filename contains NAME (repeatable)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+
+    round_dir = ROOT / f"ROUND{args.round}"
+    data_dir = ROOT / "data" / f"ROUND{args.round}"
+
     if not BACKTESTER.exists():
         print(f"Backtester not found at {BACKTESTER}")
         return 1
+    if not round_dir.is_dir():
+        print(f"Round directory not found: {round_dir}")
+        return 1
+    if not data_dir.is_dir():
+        print(f"Data directory not found: {data_dir}")
+        return 1
 
-    traders = discover_traders(ROUND_DIR)
-    days = discover_days(DATA_DIR)
+    traders = discover_traders(round_dir)
+    if args.traders:
+        needles = [needle.lower() for needle in args.traders]
+        traders = [t for t in traders if any(n in t.name.lower() for n in needles)]
+
+    available_days = discover_days(data_dir, args.round)
+    if args.days:
+        missing = sorted(set(args.days) - set(available_days))
+        if missing:
+            print(f"Requested day(s) not found in {data_dir}: {missing}")
+            return 1
+        days = sorted(args.days)
+    else:
+        days = available_days
 
     if not traders:
         print("No trader scripts found.")
@@ -193,9 +242,9 @@ def main() -> int:
 
     results = []
     for index, trader_path in enumerate(traders, start=1):
-        rel = trader_path.relative_to(ROUND_DIR).as_posix()
+        rel = trader_path.relative_to(round_dir).as_posix()
         print(f"[{index}/{len(traders)}] Evaluating {rel}")
-        results.append(evaluate_trader(trader_path, days))
+        results.append(evaluate_trader(trader_path, days, args.round, round_dir, data_dir))
 
     results.sort(
         key=lambda item: (item.total_pnl, item.avg_pnl, item.min_day_pnl),
@@ -203,7 +252,7 @@ def main() -> int:
     )
 
     print()
-    print_table(results, days, ROUND_DIR)
+    print_table(results, days, round_dir)
     return 0
 
 
