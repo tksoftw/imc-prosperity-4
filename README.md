@@ -1,7 +1,6 @@
 # IMC Prosperity 4
 
-Wiki: <https://imc-prosperity.notion.site/prosperity-4-wiki>
-Discord: <https://discord.gg/SABeB8uKxd>
+[Official Discord Server](https://discord.gg/SABeB8uKxd) | [Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki)
 
 ---
 
