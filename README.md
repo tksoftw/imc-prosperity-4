@@ -8,7 +8,7 @@
 ## Contents
 
 - [Setup (WSL + uv)](#setup-wsl--uv)
-  - [1. Install WSL (Windows only — macOS users skip to step 2)](#1-install-wsl-windows-only--macos-users-skip-to-step-2)
+  - [1. Install WSL (Windows only. macOS users skip to step 2)](#1-install-wsl-windows-only--macos-users-skip-to-step-2)
   - [2. Install uv](#2-install-uv)
   - [3. Clone + sync](#3-clone--sync)
   - [4. Activate the venv](#4-activate-the-venv)
@@ -23,10 +23,10 @@
 ## Setup (WSL + uv)
 
 This project runs on Linux/WSL using [uv](https://docs.astral.sh/uv/) for
-dependency management. On Windows, do **all** of this inside WSL, not
+dependency management. On Windows, you should do **all** of this inside WSL, not
 PowerShell. We primarally need WSL for the [backtester](https://github.com/tksoftw/prosperity_rust_backtester), but Streamlit/Uvicorn/matplotlib tooling is much easier on Linux.
 
-### 1. Install WSL (Windows only — **macOS users skip to step 2**)
+### 1. Install WSL (Windows only. **macOS users skip to step 2**)
 
 From an **admin** PowerShell:
 
