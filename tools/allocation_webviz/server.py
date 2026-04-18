@@ -21,7 +21,14 @@ _TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
 
-from allocation import build_profit_grid_fast, build_speed_lookup, research, scale  # noqa: E402
+from allocation import (  # noqa: E402
+    BUDGET_DEFAULT,
+    build_profit_grid_fast,
+    research_fast,
+    scale_fast,
+    speed_fast,
+    spend_fast,
+)
 
 app = FastAPI(default_response_class=ORJSONResponse)
 
@@ -37,6 +44,8 @@ class ComputeRequest(BaseModel):
     clusters: list[Cluster] = Field(default_factory=list)
     base_floor: int = Field(default=0, ge=0)
     probe_z: int = Field(default=50, ge=0, le=100)
+    budget: int = Field(default=BUDGET_DEFAULT, ge=1)
+    participate_in_auction: bool = True
 
 
 def _clamp(n: int, lo: int, hi: int) -> int:
@@ -104,8 +113,13 @@ def _speed_at(bids_vec: np.ndarray, z: int) -> float:
 def compute(req: ComputeRequest) -> dict[str, Any]:
     bids = build_bids_from_clusters(req.clusters, req.base_floor)
     bids_vec = np.array([bids[i] for i in range(101)], dtype=int)
+    budget = int(req.budget)
 
-    profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(bids)
+    profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(
+        bids,
+        budget=budget,
+        participate_in_auction=bool(req.participate_in_auction),
+    )
 
     speed_curve = [_speed_at(bids_vec, z) for z in range(101)]
     above_curve = [int(bids_vec[z + 1 :].sum()) for z in range(101)]
@@ -124,13 +138,14 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
     probe_rank = int(counts_with_probe[z_probe + 1 :].sum()) + 1
 
     # Best (x, y) when forced to bid z = probe_z.
-    speed_lookup = build_speed_lookup(bids)
-    research_vals = np.array([research(x) for x in range(101)], dtype=float)
-    scale_vals = np.array([scale(y) for y in range(101)], dtype=float)
+    speed_vec = speed_fast(bids)
+    research_vec = research_fast()
+    scale_vec = scale_fast()
     xs = np.arange(101)[:, None]
     ys = np.arange(101)[None, :]
-    probe_profits = np.outer(research_vals, scale_vals) * speed_lookup[z_probe] - 500 * (xs + ys + z_probe)
-    probe_profits = np.where(xs + ys + z_probe <= 100, probe_profits, -np.inf)
+    revenue = np.outer(research_vec, scale_vec) * speed_vec[z_probe]
+    cost = spend_fast(xs, ys, z_probe, budget=budget)
+    probe_profits = np.where(xs + ys + z_probe <= 100, revenue - cost, -np.inf)
     probe_flat = int(np.argmax(probe_profits))
     probe_bx, probe_by = int(probe_flat // 101), int(probe_flat % 101)
     probe_profit = float(probe_profits[probe_bx, probe_by])
