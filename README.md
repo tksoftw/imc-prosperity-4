@@ -12,7 +12,8 @@
   - [2. Install uv](#2-install-uv)
   - [3. Clone + sync](#3-clone--sync)
   - [4. Activate the venv](#4-activate-the-venv)
-  - [5. Editor extensions (optional, VS Code / Cursor)](#5-editor-extensions-optional-vs-code--cursor)
+  - [5. Connect VS Code to WSL](#5-connect-vs-code-to-wsl)
+  - [6. Editor extensions (optional, VS Code / Cursor)](#6-editor-extensions-optional-vs-code--cursor)
 - [Running things](#running-things)
 - [External tools](#external-tools)
 - [Reference repos & writeups](#reference-repos--writeups)
@@ -94,7 +95,18 @@ deactivate      # exit
 >
 > Then `source ~/.bashrc` to pick it up in the current shell.
 
-### 5. Editor extensions (optional, VS Code / Cursor)
+### 5. Connect VS Code to WSL
+
+Open VS Code on Windows and connect it to your WSL environment:
+
+1. Press **Ctrl+Shift+P** to open the command palette
+2. Type **"connect to wsl"**
+3. Select **WSL: Connect to WSL**
+
+This allows you to edit code on Windows while running everything (Python, git, etc.) inside WSL. You'll see a green "WSL" indicator in the bottom-left corner of VS Code once connected.
+
+
+### 6. Editor extensions (optional, VS Code / Cursor)
 
 - [Edit CSV](https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv)
 - [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
