@@ -1,7 +1,11 @@
 # IMC Prosperity 4
 
+## Quick Links
 [Official Discord Server](https://discord.gg/SABeB8uKxd) |
-[Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki)
+[Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki) |
+[Online Visualizer/Leaderboard](https://prosperity.equirag.com/) | 
+[Hedgehogs writeup](examples/hedgehogs.md)
+
 
 ---
 
