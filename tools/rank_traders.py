@@ -5,13 +5,26 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 
 
-ROUND = 0
+ROUND = 1
+
+
+
+if len(sys.argv) == 2:
+    try:
+        ROUND = int(sys.argv[1])
+    except ValueError:
+        print(f"Invalid round number: {sys.argv[1]}")
+        raise SystemExit(1)
+elif len(sys.argv) > 2:
+    print("Usage: rank_round1_traders.py [ROUND]")
+    raise SystemExit(1)
 
 
 
