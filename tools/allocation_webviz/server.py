@@ -45,7 +45,6 @@ class ComputeRequest(BaseModel):
     base_floor: int = Field(default=0, ge=0)
     probe_z: int = Field(default=50, ge=0, le=100)
     budget: int = Field(default=BUDGET_DEFAULT, ge=1)
-    participate_in_auction: bool = True
 
 
 def _clamp(n: int, lo: int, hi: int) -> int:
@@ -115,11 +114,7 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
     bids_vec = np.array([bids[i] for i in range(101)], dtype=int)
     budget = int(req.budget)
 
-    profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(
-        bids,
-        budget=budget,
-        participate_in_auction=bool(req.participate_in_auction),
-    )
+    profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(bids, budget=budget)
 
     speed_curve = [_speed_at(bids_vec, z) for z in range(101)]
     above_curve = [int(bids_vec[z + 1 :].sum()) for z in range(101)]

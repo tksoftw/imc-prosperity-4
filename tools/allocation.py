@@ -9,10 +9,6 @@ import random
 # Marginal cost per percentage point is BUDGET / 100.
 BUDGET_DEFAULT = 50_000
 
-# Speed multiplier you get when you skip the auction entirely (no z bid):
-# the floor of the rank curve, i.e. the same value as being last in the auction.
-NON_PARTICIPATION_SPEED = 0.1
-
 
 # ---------------------------------------------------------------------------
 # Slow / scalar versions — readable, used as ground truth.
@@ -52,7 +48,7 @@ def profit(x_percent: int, y_percent: int, z_percent: int, BIDS: defaultdict[int
 
 
 # old function
-def build_profit_grid(BIDS, participate_in_auction: bool = True, budget: int = BUDGET_DEFAULT):
+def build_profit_grid(BIDS, participate_in_auction=True, budget: int = BUDGET_DEFAULT):
     profit_grid = np.full((101, 101), np.nan, dtype=float)
 
     p_max = float("-inf")
@@ -60,26 +56,15 @@ def build_profit_grid(BIDS, participate_in_auction: bool = True, budget: int = B
 
     for x in range(101):
         for y in range(101 - x):
-            if participate_in_auction:
-                best_profit = float("-inf")
-                best_z = 0
-                for z in range(101 - x - y):
-                    p_cur = profit(x, y, z, BIDS, budget)
-                    if p_cur > best_profit:
-                        best_profit = p_cur
-                        best_z = z
-            else:
-                # Skip the auction: speed pinned to NON_PARTICIPATION_SPEED, z = 0.
-                best_z = 0
-                best_profit = (
-                    research(x) * scale(y) * NON_PARTICIPATION_SPEED
-                    - spend(x, y, 0, budget)
-                )
-
+            best_profit = float("-inf")
+            for z in range(101 - x - y):
+                p_cur = profit(x, y, z if participate_in_auction else 0, BIDS, budget)
+                if p_cur > p_max:
+                    p_max = p_cur
+                    xm, ym, zm = x, y, z
+                if p_cur > best_profit:
+                    best_profit = p_cur
             profit_grid[x, y] = best_profit
-            if best_profit > p_max:
-                p_max = best_profit
-                xm, ym, zm = x, y, best_z
 
     return profit_grid, (p_max, xm, ym, zm)
 
@@ -170,30 +155,13 @@ def profit_fast(
     return revenue - cost
 
 
-def build_profit_grid_fast(
-    BIDS,
-    budget: int = BUDGET_DEFAULT,
-    participate_in_auction: bool = True,
-):
+def build_profit_grid_fast(BIDS, budget: int = BUDGET_DEFAULT):
+    profit_grid = np.full((101, 101), np.nan, dtype=float)
+
     research_vec = research_fast()
     scale_vec = scale_fast()
-
-    if not participate_in_auction:
-        # No auction: speed pinned to NON_PARTICIPATION_SPEED, z = 0.
-        # Profit collapses to a 2D problem in (x, y), so vectorize directly.
-        xs = np.arange(101)[:, None]
-        ys = np.arange(101)[None, :]
-        revenue = np.outer(research_vec, scale_vec) * NON_PARTICIPATION_SPEED
-        cost = (budget / 100) * (xs + ys)
-        profit_grid = np.where(xs + ys <= 100, revenue - cost, np.nan)
-
-        flat = int(np.nanargmax(profit_grid))
-        xm, ym = int(flat // 101), int(flat % 101)
-        return profit_grid, (float(profit_grid[xm, ym]), xm, ym, 0)
-
     speed_vec = speed_fast(BIDS)
 
-    profit_grid = np.full((101, 101), np.nan, dtype=float)
     p_max = float("-inf")
     xm = ym = zm = 0
 

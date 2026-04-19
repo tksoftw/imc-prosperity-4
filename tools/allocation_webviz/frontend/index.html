@@ -27,13 +27,18 @@
       .cluster .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
       .cluster .del { background: transparent; border: none; color: var(--accent-2); cursor: pointer; font-size: 16px; line-height: 1; }
       .row { display: grid; grid-template-columns: 70px 1fr 50px; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+      .row.rowWide { grid-template-columns: 70px 1fr; }
       .row label { color: var(--muted); }
       .row .val { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
       input[type="range"] { width: 100%; }
       input[type="number"] { width: 100%; background: #0c0e13; border: 1px solid var(--border); color: var(--text); padding: 4px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+      input.numTiny { padding: 2px 4px; text-align: right; }
+      input.numTiny::-webkit-outer-spin-button,
+      input.numTiny::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      input.numTiny { -moz-appearance: textfield; }
       button.primary { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: #253044; color: var(--text); cursor: pointer; }
       button.primary:hover { background: #2f3c56; }
-      .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 10px; }
+      .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 10px; }
       .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
       .metric .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
       .metric .v { font-size: 18px; font-variant-numeric: tabular-nums; margin-top: 4px; }
@@ -50,19 +55,9 @@
       <aside class="sidebar">
         <h1>Allocation Optimizer</h1>
 
-        <div class="row" style="grid-template-columns: 70px 1fr 90px;">
+        <div class="row rowWide">
           <label>Budget</label>
-          <input type="number" id="budget" min="1" step="1000" value="50000" />
-          <span class="val" id="budgetVal">50,000</span>
-        </div>
-
-        <div class="row">
-          <label>Auction</label>
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
-            <input type="checkbox" id="participate" checked />
-            <span>Participate (else speed = 0.1, z = 0)</span>
-          </label>
-          <span class="val" id="participateVal">on</span>
+          <input type="number" id="budget" min="1" max="100000000" step="any" value="50000" />
         </div>
 
         <div class="row">
@@ -87,7 +82,6 @@
 
       <main class="main">
         <div class="metrics">
-          <div class="metric"><div class="k">Budget · auction</div><div class="v" id="mBudget">—</div></div>
           <div class="metric"><div class="k">Total bids</div><div class="v" id="mTotal">—</div></div>
           <div class="metric"><div class="k">Best (x,y,z)</div><div class="v" id="mBest">—</div></div>
           <div class="metric"><div class="k">Best profit</div><div class="v" id="mProfit">—</div></div>
@@ -117,7 +111,6 @@
         baseFloor: 0,
         probeZ: 36,
         budget: 50000,
-        participate: true,
       };
 
       const initialised = { bids: false, speed: false, above: false, heat: false, surface: false };
@@ -139,7 +132,7 @@
             <div class="row">
               <label>Center</label>
               <input type="range" min="0" max="100" value="${c.center}" data-id="${c.id}" data-field="center" />
-              <span class="val" data-val="center-${c.id}">${c.center}</span>
+              <input type="number" class="numTiny" min="0" max="100" value="${c.center}" data-id="${c.id}" data-field="center" />
             </div>
             <div class="row">
               <label>Size</label>
@@ -159,10 +152,19 @@
           el.addEventListener("input", (e) => {
             const id = Number(e.target.dataset.id);
             const field = e.target.dataset.field;
-            const v = Number(e.target.value);
+            const raw = e.target.value;
+            if (raw === "") return;
+            let v = Number(raw);
+            if (!Number.isFinite(v)) return;
+            const min = e.target.min !== "" ? Number(e.target.min) : -Infinity;
+            const max = e.target.max !== "" ? Number(e.target.max) : Infinity;
+            v = Math.max(min, Math.min(max, v));
             const c = state.clusters.find((x) => x.id === id);
             if (!c) return;
             c[field] = v;
+            host
+              .querySelectorAll(`input[data-id="${id}"][data-field="${field}"]`)
+              .forEach((sib) => { if (sib !== e.target) sib.value = String(v); });
             const valEl = host.querySelector(`[data-val="${field}-${id}"]`);
             if (valEl) valEl.textContent = v;
             scheduleRefresh();
@@ -196,7 +198,6 @@
               base_floor: state.baseFloor,
               probe_z: state.probeZ,
               budget: state.budget,
-              participate_in_auction: state.participate,
             }),
           });
           if (!res.ok) throw new Error(await res.text());
@@ -212,13 +213,7 @@
         }
       }
 
-      function renderBudgetMetric() {
-        $("mBudget").textContent =
-          `${state.budget.toLocaleString()} · ${state.participate ? "in" : "out"}`;
-      }
-
       function updateMetrics(d) {
-        renderBudgetMetric();
         $("mTotal").textContent = d.total_bids;
         $("mBest").textContent = `(${d.best.x}, ${d.best.y}, ${d.best.z})`;
         $("mProfit").textContent = d.best.profit.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -331,17 +326,10 @@
       }
 
       $("budget").addEventListener("input", (e) => {
+        if (e.target.value === "") return;
         const v = Number(e.target.value);
         if (!Number.isFinite(v) || v < 1) return;
         state.budget = v;
-        $("budgetVal").textContent = v.toLocaleString();
-        renderBudgetMetric();
-        scheduleRefresh();
-      });
-      $("participate").addEventListener("change", (e) => {
-        state.participate = e.target.checked;
-        $("participateVal").textContent = state.participate ? "on" : "off";
-        renderBudgetMetric();
         scheduleRefresh();
       });
       $("baseFloor").addEventListener("input", (e) => {
@@ -361,7 +349,6 @@
       });
 
       renderClusters();
-      renderBudgetMetric();
       refresh();
     </script>
   </body>

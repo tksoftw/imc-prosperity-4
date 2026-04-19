@@ -12,12 +12,13 @@
 ## Contents
 
 - [Setup (WSL + uv)](#setup-wsl--uv)
-  - [1. Install WSL (Windows only. macOS users skip to step 2)](#1-install-wsl-windows-only--macos-users-skip-to-step-2)
+  - [1. Install WSL (Windows only. macOS users skip to step 2)](#1-install-wsl-windows-only-macos-users-skip-to-step-2)
   - [2. Install uv](#2-install-uv)
-  - [3. Clone + sync](#3-clone--sync)
-  - [4. Activate the venv](#4-activate-the-venv)
-  - [5. Connect VS Code to WSL](#5-connect-vs-code-to-wsl)
-  - [6. Editor extensions (optional, VS Code / Cursor)](#6-editor-extensions-optional-vs-code--cursor)
+  - [3. Connect VS Code to WSL](#3-connect-vs-code-to-wsl)
+  - [4. Clone + sync (IN WSL)](#4-clone--sync-in-wsl)
+  - [5. Activate the venv](#5-activate-the-venv)
+  - [6. Install the Rust backtester](#6-install-the-rust-backtester)
+  - [7. Editor extensions (optional, VS Code / Cursor)](#7-editor-extensions-optional-vs-code--cursor)
 - [Running things](#running-things)
 - [External tools](#external-tools)
 - [Reference repos & writeups](#reference-repos--writeups)
@@ -45,7 +46,7 @@ Reboot, launch `Ubuntu` from the Start menu, create your user, then:
 sudo apt update && sudo apt install -y build-essential git curl
 ```
 
-> **Cisco AnyConnect users:** WSL2's default NAT networking
+> **Cisco AnyConnect / corporate VPN users:** WSL2's default NAT networking
 > breaks while AnyConnect is connected (DNS + `curl` fail inside WSL). Fix it
 > by switching WSL to mirrored networking. Create `C:\Users\<you>\.wslconfig`
 > (e.g. `C:\Users\tk\.wslconfig`) containing:
@@ -66,7 +67,18 @@ exec bash        # reload shell so `uv` is on PATH
 uv --version
 ```
 
-### 3. Clone + sync
+### 3. Connect VS Code to WSL
+
+Open VS Code on Windows and connect it to your WSL environment:
+
+1. Press **Ctrl+Shift+P** to open the command palette
+2. Type **"connect to wsl"**
+3. Select **WSL: Connect to WSL**
+
+This allows you to edit code on Windows while running everything (Python, git, etc.) inside WSL. You'll see a green "WSL" indicator in the bottom-left corner of VS Code once connected.
+
+
+### 4. Clone + sync (IN WSL)
 
 ```bash
 git clone <this-repo> imc-prosperity-4
@@ -80,7 +92,7 @@ uv sync --extra dev
 `uv sync` resolves the lockfile, creates `.venv/`, and installs exactly the
 pinned versions. Rerun it whenever `pyproject.toml` or `uv.lock` changes.
 
-### 4. Activate the venv
+### 5. Activate the venv
 
 From the repo root:
 
@@ -99,18 +111,36 @@ deactivate      # exit
 >
 > Then `source ~/.bashrc` to pick it up in the current shell.
 
-### 5. Connect VS Code to WSL
+### 6. Install the Rust backtester
 
-Open VS Code on Windows and connect it to your WSL environment:
+`tools/rank_traders.py` shells out to a Rust binary that lives at
+`~/.cargo/bin/rust_backtester`. Skip this step if you only care about the
+allocation optimizer or notebooks.
 
-1. Press **Ctrl+Shift+P** to open the command palette
-2. Type **"connect to wsl"**
-3. Select **WSL: Connect to WSL**
+If you don't already have Rust:
 
-This allows you to edit code on Windows while running everything (Python, git, etc.) inside WSL. You'll see a green "WSL" indicator in the bottom-left corner of VS Code once connected.
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+exec bash      # reload PATH so `cargo` is available
+```
+
+Then install the backtester from crates.io:
+
+```bash
+cargo install rust_backtester --locked
+rust_backtester --help    # sanity check
+```
+
+`--locked` pins the transitive crate versions to whatever the maintainer
+shipped, so your install matches what they tested. This puts the binary at
+`~/.cargo/bin/rust_backtester` — the path `rank_traders.py` already expects.
+
+> uv only manages Python packages, so this step lives outside `uv sync` /
+> `uv.lock`. Re-run `cargo install rust_backtester --locked` whenever you want
+> to pull a newer release.
 
 
-### 6. Editor extensions (optional, VS Code / Cursor)
+### 7. Editor extensions (optional, VS Code / Cursor)
 
 - [Edit CSV](https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv)
 - [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
@@ -130,12 +160,6 @@ uvicorn tools.allocation_webviz.server:app --reload --port 8001
 
 # CLI heatmap
 python tools/allocation.py --heatmap
-
-# add a package to uv
-uv add jsontreeview
-
-# sync packages
-uv sync
 ```
 
 ---
