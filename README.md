@@ -16,7 +16,7 @@
   - [2. Install uv](#2-install-uv)
   - [3. Connect VS Code to WSL](#3-connect-vs-code-to-wsl)
   - [4. Clone + sync **(In WSL)**](#4-clone--sync-in-wsl)
-  - [5. Activate the venv **(Important)**](#5-activate-the-venv)
+  - [5. Activate the venv **(Important)**](#5-activate-the-venv-important)
   - [6. Install the Rust backtester](#6-install-the-rust-backtester)
   - [7. Editor extensions (optional, VS Code / Cursor)](#7-editor-extensions-optional-vs-code--cursor)
 - [Running things](#running-things)
