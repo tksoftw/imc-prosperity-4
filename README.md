@@ -17,7 +17,7 @@
     - [Create a `.venv` alias](#create-a-venv-alias)
     - [Use WSL in VS Code/Cursor](#use-wsl-in-vs-codecursor)
     - [Editor extensions](#editor-extensions)
-- [Reference repos & writeups](#reference-repos--writeups)
+- [Writeups & reference repos](#writeups--reference-repos)
 
 ---
 
@@ -25,13 +25,12 @@
 
 ### Windows
 
-`wsl --install -d Ubuntu` only installs the distro. After it finishes, reboot, launch "Ubuntu" from the Start menu, create your user, then run the rest below inside that WSL shell.
-
+Admin PowerShell:
 ```powershell
-# 1. From an ADMIN PowerShell. Reboot afterwards, then launch "Ubuntu" from Start.
-wsl --install -d Ubuntu
+# 1. From an ADMIN PowerShell. Reboot afterwards, then launch "WSL" from Start.
+wsl --install
 ```
-
+Ubuntu:
 ```bash
 # 2. Inside the Ubuntu (WSL) shell from here on:
 sudo apt update && sudo apt install -y build-essential git curl
@@ -43,7 +42,7 @@ cargo install rust_backtester --locked
 ```
 
 <details>
-<summary><b>Trouble connecting WSL to the Internet? (Cisco AnyConnect / other VPN)</b></summary>
+<summary><b>Trouble connecting to the Internet on WSL? (Cisco AnyConnect / other VPN)</b></summary>
 
 >WSL2's default NAT networking breaks while AnyConnect is connected (DNS + `curl` fail inside WSL). Switch WSL to mirrored networking by creating `C:\Users\<you>\.wslconfig` with:
 >
@@ -89,9 +88,7 @@ Note: We mostly use [rank_traders](#rank-traders) for quick backtesting. But oth
 
 ### [Online Visualizer](https://prosperity.equirag.com/)
 
-Drop a submission `.log` to render fills, PnL, and the leaderboard. 
-
-Logs from the [rust backtester](#rust-backtester) are located in the [runs](runs/) folder (generated after at least one backtest).
+Drop a submission `.log` to render fills, PnL, and the leaderboard. Logs from the [rust backtester](#rust-backtester) are located in the [runs](runs/) folder (generated after at least one backtest is run).
 
 ### Submission Libraries
 
@@ -155,7 +152,7 @@ You'll see a green "WSL" indicator in the bottom-left once connected.
 
 ---
 
-## Reference repos & writeups
+## Writeups & reference repos
 
 ### [Hedgehogs writeup](examples/hedgehogs.md)
 2nd overall, very detailed.
