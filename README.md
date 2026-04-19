@@ -117,6 +117,11 @@ The competition only allows the following libraries inside trader files
 ### [orderbook optimizer](tools/orderbook.py)
 `python3 tools/orderbook.py`
 
+</details>
+
+<details>
+<summary>Round 2</summary>
+
 ### [allocation optimizer](tools/allocation_webviz/)
 `uvicorn tools.allocation_webviz.server:app --reload --port 8001`
 
