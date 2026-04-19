@@ -170,7 +170,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="rank_traders",
         description=(
-            "Run every trader under ROUND{N}/ against every day in data/ROUND{N}/ "
+            "Run every trader under ROUND_{N}/ against every day in data/ROUND_{N}/ "
             "using the rust backtester, then print a ranked PnL table."
         ),
     )
@@ -180,7 +180,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=DEFAULT_ROUND,
         metavar="N",
-        help="round number (default: %(default)s); selects ROUND<N>/ and data/ROUND<N>/",
+        help="round number (default: %(default)s); selects ROUND_<N>/ and data/ROUND_<N>/",
     )
     parser.add_argument(
         "--days",
@@ -202,8 +202,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
-    round_dir = ROOT / f"ROUND{args.round}"
-    data_dir = ROOT / "data" / f"ROUND{args.round}"
+    round_dir = ROOT / f"ROUND_{args.round}"
+    data_dir = ROOT / "data" / f"ROUND_{args.round}"
 
     if not BACKTESTER.exists():
         print(f"Backtester not found at {BACKTESTER}")

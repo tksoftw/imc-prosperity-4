@@ -11,7 +11,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_prices() -> pd.DataFrame:
-    frames = [pd.read_csv(path, sep=";") for path in sorted((ROOT / "data/ROUND1").glob("prices_round_1_day_*.csv"))]
+    frames = [pd.read_csv(path, sep=";") for path in sorted((ROOT / "data/ROUND_1").glob("prices_round_1_day_*.csv"))]
     prices = pd.concat(frames, ignore_index=True)
     for column in prices.columns:
         if column != "product":
