@@ -17,7 +17,7 @@
     - [Create a `.venv` alias](#create-a-venv-alias)
     - [Use WSL in VS Code/Cursor](#use-wsl-in-vs-codecursor)
     - [Editor extensions](#editor-extensions)
-- [Reference repos & writeups](#writeups--reference-repos)
+- [Writeups & reference repos](#writeups--reference-repos)
 
 ---
 
