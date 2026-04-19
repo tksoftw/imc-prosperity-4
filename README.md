@@ -27,8 +27,8 @@
 
 Admin PowerShell:
 ```powershell
-# 1. From an ADMIN PowerShell. Reboot afterwards, then launch "Ubuntu" from Start.
-wsl --install -d Ubuntu
+# 1. From an ADMIN PowerShell. Reboot afterwards, then launch "WSL" from Start.
+wsl --install
 ```
 Ubuntu:
 ```bash
