@@ -8,7 +8,8 @@ to this server for each recompute.
 
 import os
 import sys
-from typing import Any
+import math
+from typing import Any, Literal
 
 import numpy as np
 from fastapi import FastAPI
@@ -38,6 +39,9 @@ class Cluster(BaseModel):
     center: int = Field(ge=0, le=100)
     size: int = Field(ge=0)
     width: int = Field(default=0, ge=0, le=100)
+    weight_mode: Literal["linear", "exponential"] = "linear"
+    # L = mass only on z <= center (spread left); R = only z >= center; F = both sides (symmetric).
+    spread: Literal["L", "R", "F"] = "F"
 
 
 class ComputeRequest(BaseModel):
@@ -45,6 +49,8 @@ class ComputeRequest(BaseModel):
     base_floor: int = Field(default=0, ge=0)
     probe_z: int = Field(default=50, ge=0, le=100)
     budget: int = Field(default=BUDGET_DEFAULT, ge=1)
+    # Optional legacy/global override; when set, replaces every cluster's weight_mode for this request.
+    cluster_weight_mode: Literal["linear", "exponential"] | None = None
 
 
 def _clamp(n: int, lo: int, hi: int) -> int:
@@ -58,6 +64,7 @@ def build_bids_from_clusters(clusters: list[Cluster], base_floor: int) -> dict[i
         center = _clamp(int(c.center), 0, 100)
         size = max(0, int(c.size))
         width = max(0, int(c.width))
+        mode = c.weight_mode
 
         if size == 0:
             continue
@@ -66,16 +73,34 @@ def build_bids_from_clusters(clusters: list[Cluster], base_floor: int) -> dict[i
             bids[center] += size
             continue
 
-        raw: list[list[int]] = []
-        total_weight = 0
-        for b in range(max(0, center - width), min(100, center + width) + 1):
-            weight = width - abs(b - center) + 1
-            raw.append([b, weight])
-            total_weight += weight
+        spread = c.spread
+        if spread == "L":
+            lo, hi = max(0, center - width), center
+        elif spread == "R":
+            lo, hi = center, min(100, center + width)
+        else:
+            lo, hi = max(0, center - width), min(100, center + width)
+
+        raw: list[tuple[int, float]] = []
+        total_weight = 0.0
+        for b in range(lo, hi + 1):
+            if spread == "L":
+                dist = center - b
+            elif spread == "R":
+                dist = b - center
+            else:
+                dist = abs(b - center)
+            if mode == "exponential":
+                # Stronger at center; ~e^-2 at the edge (dist == width).
+                w = math.exp(-2.0 * dist / float(width))
+            else:
+                w = float(width - dist + 1)
+            raw.append((b, w))
+            total_weight += w
 
         assigned = 0
         for b, w in raw:
-            add = (size * w) // total_weight if total_weight else 0
+            add = int(size * w / total_weight) if total_weight else 0
             bids[b] += add
             assigned += add
 
@@ -110,7 +135,10 @@ def _speed_at(bids_vec: np.ndarray, z: int) -> float:
 
 
 def compute(req: ComputeRequest) -> dict[str, Any]:
-    bids = build_bids_from_clusters(req.clusters, req.base_floor)
+    clusters = list(req.clusters)
+    if req.cluster_weight_mode is not None:
+        clusters = [c.model_copy(update={"weight_mode": req.cluster_weight_mode}) for c in clusters]
+    bids = build_bids_from_clusters(clusters, req.base_floor)
     bids_vec = np.array([bids[i] for i in range(101)], dtype=int)
     budget = int(req.budget)
 
