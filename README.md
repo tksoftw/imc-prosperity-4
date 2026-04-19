@@ -19,7 +19,7 @@
   - [5. Activate the venv **(Important)**](#5-activate-the-venv-important)
   - [6. Install the Rust backtester](#6-install-the-rust-backtester)
   - [7. Editor extensions (optional, VS Code / Cursor)](#7-editor-extensions-optional-vs-code--cursor)
-- [Running things](#running-things)
+- [Running things](#running-things-note-must-be-in-the-venv)
 - [External tools](#external-tools)
 - [Reference repos & writeups](#reference-repos--writeups)
 - [Libraries allowed in submissions](#libraries-allowed-in-submissions)
