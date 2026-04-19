@@ -87,7 +87,7 @@ def run_backtest(
         "--output-root",
         str(RUNS_DIR.relative_to(ROOT)),
         "--artifact-mode",
-        "none",
+        "full",
         "--products",
         "summary",
     ]
