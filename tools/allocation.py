@@ -5,6 +5,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 
+# Default total budget the auction problem ships with (50k coins).
+# Marginal cost per percentage point is BUDGET / 100.
+BUDGET_DEFAULT = 50_000
+
+# Speed multiplier you get when you skip the auction entirely (no z bid):
+# the floor of the rank curve, i.e. the same value as being last in the auction.
+NON_PARTICIPATION_SPEED = 0.1
+
+
+# ---------------------------------------------------------------------------
+# Slow / scalar versions — readable, used as ground truth.
+# ---------------------------------------------------------------------------
+
 def research(x_percent):
     return 200_000*ln(1+x_percent)/ln(101)
 
@@ -27,15 +40,19 @@ def speed(BIDS: dict[int, int], z_percent: int):
     m = (0.1 - 0.9) / (total_bids - 1)
     return 0.9 + m * (your_rank - 1)
 
-def spend(x_percent: int, y_percent: int, z_percent: int):
-    return 50_000*(x_percent/100 + y_percent/100 + z_percent/100)
+def spend(x_percent: int, y_percent: int, z_percent: int, budget: int = BUDGET_DEFAULT):
+    return budget * (x_percent/100 + y_percent/100 + z_percent/100)
 
-def profit(x_percent: int, y_percent: int, z_percent: int, BIDS: defaultdict[int, int]):
-    return research(x_percent)*scale(y_percent)*speed(BIDS, z_percent) - spend(x_percent, y_percent, z_percent)
+def profit(x_percent: int, y_percent: int, z_percent: int, BIDS: defaultdict[int, int],
+           budget: int = BUDGET_DEFAULT):
+    return (
+        research(x_percent) * scale(y_percent) * speed(BIDS, z_percent)
+        - spend(x_percent, y_percent, z_percent, budget)
+    )
 
 
 # old function
-def build_profit_grid(BIDS, participate_in_auction=True):
+def build_profit_grid(BIDS, participate_in_auction: bool = True, budget: int = BUDGET_DEFAULT):
     profit_grid = np.full((101, 101), np.nan, dtype=float)
 
     p_max = float("-inf")
@@ -43,22 +60,52 @@ def build_profit_grid(BIDS, participate_in_auction=True):
 
     for x in range(101):
         for y in range(101 - x):
-            best_profit = float("-inf")
-            for z in range(101 - x - y):
-                p_cur = profit(x, y, z if participate_in_auction else 0, BIDS)
-                if p_cur > p_max:
-                    p_max = p_cur
-                    xm, ym, zm = x, y, z
-                if p_cur > best_profit:
-                    best_profit = p_cur
+            if participate_in_auction:
+                best_profit = float("-inf")
+                best_z = 0
+                for z in range(101 - x - y):
+                    p_cur = profit(x, y, z, BIDS, budget)
+                    if p_cur > best_profit:
+                        best_profit = p_cur
+                        best_z = z
+            else:
+                # Skip the auction: speed pinned to NON_PARTICIPATION_SPEED, z = 0.
+                best_z = 0
+                best_profit = (
+                    research(x) * scale(y) * NON_PARTICIPATION_SPEED
+                    - spend(x, y, 0, budget)
+                )
+
             profit_grid[x, y] = best_profit
+            if best_profit > p_max:
+                p_max = best_profit
+                xm, ym, zm = x, y, best_z
 
     return profit_grid, (p_max, xm, ym, zm)
 
 
-# Faster calculator:
-# Precompute speed(z) for every z once, then reuse it inside the grid search.
-def build_speed_lookup(BIDS: dict[int, int]) -> np.ndarray:
+# ---------------------------------------------------------------------------
+# Fast / vectorized versions — used by the dashboard.
+# Each `_fast` mirrors a scalar function above but returns a precomputed
+# numpy array so the inner grid loop stays a one-liner.
+# ---------------------------------------------------------------------------
+
+def research_fast() -> np.ndarray:
+    """research(x) for x in 0..100, as a length-101 array."""
+    return np.array([research(x) for x in range(101)], dtype=float)
+
+
+def scale_fast() -> np.ndarray:
+    """scale(y) for y in 0..100, as a length-101 array."""
+    return np.array([scale(y) for y in range(101)], dtype=float)
+
+
+def speed_fast(BIDS: dict[int, int]) -> np.ndarray:
+    """speed(BIDS, z) for z in 0..100, as a length-101 array.
+
+    Equivalent to calling `speed()` 101 times but O(N) in the bid count
+    thanks to a single suffix-sum pass over the bid histogram.
+    """
     counts = np.zeros(101, dtype=int)
     for bid, count in BIDS.items():
         if 0 <= bid <= 100:
@@ -97,24 +144,64 @@ def build_speed_lookup(BIDS: dict[int, int]) -> np.ndarray:
 
     return speed_lookup
 
-def build_profit_grid_fast(BIDS):
+
+def spend_fast(x: int, y: int, z_array: np.ndarray, budget: int = BUDGET_DEFAULT) -> np.ndarray:
+    """Vectorized `spend()` over a vector of z values for fixed (x, y)."""
+    return (budget / 100) * (x + y + z_array)
+
+
+def profit_fast(
+    x: int,
+    y: int,
+    max_z: int,
+    research_vec: np.ndarray,
+    scale_vec: np.ndarray,
+    speed_vec: np.ndarray,
+    budget: int = BUDGET_DEFAULT,
+) -> np.ndarray:
+    """Vectorized `profit()` over z in 0..max_z for fixed (x, y).
+
+    `research_vec`, `scale_vec`, `speed_vec` are the precomputed length-101
+    arrays from `research_fast`, `scale_fast`, `speed_fast`.
+    """
+    z_arr = np.arange(max_z + 1, dtype=float)
+    revenue = research_vec[x] * scale_vec[y] * speed_vec[: max_z + 1]
+    cost = spend_fast(x, y, z_arr, budget)
+    return revenue - cost
+
+
+def build_profit_grid_fast(
+    BIDS,
+    budget: int = BUDGET_DEFAULT,
+    participate_in_auction: bool = True,
+):
+    research_vec = research_fast()
+    scale_vec = scale_fast()
+
+    if not participate_in_auction:
+        # No auction: speed pinned to NON_PARTICIPATION_SPEED, z = 0.
+        # Profit collapses to a 2D problem in (x, y), so vectorize directly.
+        xs = np.arange(101)[:, None]
+        ys = np.arange(101)[None, :]
+        revenue = np.outer(research_vec, scale_vec) * NON_PARTICIPATION_SPEED
+        cost = (budget / 100) * (xs + ys)
+        profit_grid = np.where(xs + ys <= 100, revenue - cost, np.nan)
+
+        flat = int(np.nanargmax(profit_grid))
+        xm, ym = int(flat // 101), int(flat % 101)
+        return profit_grid, (float(profit_grid[xm, ym]), xm, ym, 0)
+
+    speed_vec = speed_fast(BIDS)
+
     profit_grid = np.full((101, 101), np.nan, dtype=float)
-
-    research_vals = np.array([research(x) for x in range(101)], dtype=float)
-    scale_vals = np.array([scale(y) for y in range(101)], dtype=float)
-    speed_vals = build_speed_lookup(BIDS)
-    z_penalty = 500 * np.arange(101, dtype=float)
-
     p_max = float("-inf")
     xm = ym = zm = 0
 
     for x in range(101):
-        rx = research_vals[x]
         for y in range(101 - x):
-            ry = scale_vals[y]
             max_z = 100 - x - y
 
-            profits = rx * ry * speed_vals[:max_z + 1] - 500 * (x + y) - z_penalty[:max_z + 1]
+            profits = profit_fast(x, y, max_z, research_vec, scale_vec, speed_vec, budget)
             best_z = int(np.argmax(profits))
             best_profit = float(profits[best_z])
 
