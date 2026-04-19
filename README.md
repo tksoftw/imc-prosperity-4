@@ -112,7 +112,7 @@ The competition only allows the following libraries inside trader files
 
 
 <details>
-<summary><b>Round 1</b></summary>
+<summary>Round 1</summary>
 
 ### [orderbook optimizer](tools/orderbook.py)
 `python3 tools/orderbook.py`
