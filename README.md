@@ -14,7 +14,7 @@
 - [Setup (WSL + uv)](#setup-wsl--uv)
   - [1. Install WSL (Windows only. macOS users skip to step 2)](#1-install-wsl-windows-only-macos-users-skip-to-step-2)
   - [2. Install uv](#2-install-uv)
-  - [3. Connect VS Code to WSL](#3-connect-vs-code-to-wsl)
+  - [3. Using WSL in VS Code](#3-using-wsl-in-vs-code)
   - [4. Clone + sync **(In WSL)**](#4-clone--sync-in-wsl)
   - [5. Activate the venv **(Important)**](#5-activate-the-venv-important)
   - [6. Install the Rust backtester](#6-install-the-rust-backtester)
@@ -46,7 +46,10 @@ Reboot, launch `Ubuntu` from the Start menu, create your user, then:
 sudo apt update && sudo apt install -y build-essential git curl
 ```
 
-> **Cisco AnyConnect / corporate VPN users:** WSL2's default NAT networking
+<details>
+<summary>Trouble connecting to the Internet on WSL?</summary>
+  
+> **Cisco AnyConnect / other VPN users:** WSL2's default NAT networking
 > breaks while AnyConnect is connected (DNS + `curl` fail inside WSL). Fix it
 > by switching WSL to mirrored networking. Create `C:\Users\<you>\.wslconfig`
 > (e.g. `C:\Users\tk\.wslconfig`) containing:
@@ -59,6 +62,8 @@ sudo apt update && sudo apt install -y build-essential git curl
 > Then from PowerShell run `wsl --shutdown` and reopen Ubuntu. Verify with
 > `curl -I https://astral.sh` from inside WSL.
 
+</details>
+  
 ### 2. Install uv
 
 ```bash
@@ -67,19 +72,20 @@ exec bash        # reload shell so `uv` is on PATH
 uv --version
 ```
 
-### 3. Connect VS Code to WSL
+### 3. Using WSL in VS Code
 
-Open VS Code on Windows and connect it to your WSL environment:
+Open VS Code (on Windows) and connect it to your WSL environment:
 
-1. Press **Ctrl+Shift+P** to open the command palette
-2. Type **"connect to wsl"**
-3. Select **WSL: Connect to WSL**
+1. Press `CTRL`+`SHIFT`+`P` at the same time to open the command palette.
+2. Type "connect to wsl".
+3. Select `WSL: Connect to WSL`.
 
 This allows you to edit code on Windows while running everything (Python, git, etc.) inside WSL. You'll see a green "WSL" indicator in the bottom-left corner of VS Code once connected.
 
 
 ### 4. Clone + sync **(In WSL)**
 
+While **In WSL** (either in a standalone terminal or VS-Code-WSL terminal):
 ```bash
 git clone <this-repo> imc-prosperity-4
 cd imc-prosperity-4
@@ -134,10 +140,6 @@ rust_backtester --help    # sanity check
 `--locked` pins the transitive crate versions to whatever the maintainer
 shipped, so your install matches what they tested. This puts the binary at
 `~/.cargo/bin/rust_backtester` — the path `rank_traders.py` already expects.
-
-> uv only manages Python packages, so this step lives outside `uv sync` /
-> `uv.lock`. Re-run `cargo install rust_backtester --locked` whenever you want
-> to pull a newer release.
 
 
 ### 7. Editor extensions (optional, VS Code / Cursor)
