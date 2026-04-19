@@ -30,7 +30,7 @@
 
 This project runs on Linux/WSL using [uv](https://docs.astral.sh/uv/) for
 dependency management. On Windows, you should do **all** of this inside WSL, not
-PowerShell. We primarally need WSL for the [backtester](https://github.com/tksoftw/prosperity_rust_backtester), but Streamlit/Uvicorn/matplotlib tooling is much easier on Linux.
+PowerShell. We primarily need WSL for the [backtester](https://github.com/tksoftw/prosperity_rust_backtester), but Streamlit/Uvicorn/matplotlib tooling is much easier on Linux.
 
 ### 1. Install WSL (Windows only. **macOS users skip to step 2**)
 
@@ -149,7 +149,7 @@ shipped, so your install matches what they tested. This puts the binary at
 
 ---
 
-## Running things (Note: MUST be in the venv)
+## Running things (Note: MUST be in the `venv`)
 
 ```bash
 vv # activate venv
