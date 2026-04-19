@@ -15,8 +15,8 @@
   - [1. Install WSL (Windows only. macOS users skip to step 2)](#1-install-wsl-windows-only-macos-users-skip-to-step-2)
   - [2. Install uv](#2-install-uv)
   - [3. Connect VS Code to WSL](#3-connect-vs-code-to-wsl)
-  - [4. Clone + sync (IN WSL)](#4-clone--sync-in-wsl)
-  - [5. Activate the venv](#5-activate-the-venv)
+  - [4. Clone + sync **(In WSL)**](#4-clone--sync-in-wsl)
+  - [5. Activate the venv **(Important)**](#5-activate-the-venv)
   - [6. Install the Rust backtester](#6-install-the-rust-backtester)
   - [7. Editor extensions (optional, VS Code / Cursor)](#7-editor-extensions-optional-vs-code--cursor)
 - [Running things](#running-things)
@@ -78,7 +78,7 @@ Open VS Code on Windows and connect it to your WSL environment:
 This allows you to edit code on Windows while running everything (Python, git, etc.) inside WSL. You'll see a green "WSL" indicator in the bottom-left corner of VS Code once connected.
 
 
-### 4. Clone + sync (IN WSL)
+### 4. Clone + sync **(In WSL)**
 
 ```bash
 git clone <this-repo> imc-prosperity-4
@@ -92,7 +92,7 @@ uv sync --extra dev
 `uv sync` resolves the lockfile, creates `.venv/`, and installs exactly the
 pinned versions. Rerun it whenever `pyproject.toml` or `uv.lock` changes.
 
-### 5. Activate the venv
+### 5. Activate the venv **(Important)**
 
 From the repo root:
 
@@ -147,7 +147,7 @@ shipped, so your install matches what they tested. This puts the binary at
 
 ---
 
-## Running things
+## Running things (Note: MUST be in the venv)
 
 ```bash
 vv # activate venv
