@@ -386,7 +386,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "ipywidgets" },
     { name = "jsonpickle" },
-    { name = "jsontreeview" },
     { name = "matplotlib" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -410,7 +409,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "ipywidgets", specifier = ">=8.0" },
     { name = "jsonpickle", specifier = ">=3.0" },
-    { name = "jsontreeview", specifier = ">=2.6" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "orjson", specifier = ">=3.10" },
@@ -571,15 +569,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e4/a6/d07afcfdef402900229bcca795f80506b207af13a838d4d99ad45abf530c/jsonpickle-4.1.1.tar.gz", hash = "sha256:f86e18f13e2b96c1c1eede0b7b90095bbb61d99fedc14813c44dc2f361dbbae1", size = 316885, upload-time = "2025-06-02T20:36:11.57Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/73/04df8a6fa66d43a9fd45c30f283cc4afff17da671886e451d52af60bdc7e/jsonpickle-4.1.1-py3-none-any.whl", hash = "sha256:bb141da6057898aa2438ff268362b126826c812a1721e31cf08a6e142910dc91", size = 47125, upload-time = "2025-06-02T20:36:08.647Z" },
-]
-
-[[package]]
-name = "jsontreeview"
-version = "2.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/66/20/aa4189c2b2543913b9ea47834ae2c4e64853f92caa31d365e47e1b9e9082/jsontreeview-2.6.tar.gz", hash = "sha256:3eb87cd4c3b83847b7c17b6d96364ec3521d8290f48c228986f7e21956e22da5", size = 2963, upload-time = "2022-07-28T01:41:10.321Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/89/a4/0d2e1a0e57a6498b8e6b52592c5bb7f0755e20c97a953d1ec89087ec1561/jsontreeview-2.6-py3-none-any.whl", hash = "sha256:0aeb169e7f395fd7fbf3e8f0de268fba4d8ed3dec1ae4eb109089a3aabc1136d", size = 3186, upload-time = "2022-07-28T01:41:08.471Z" },
 ]
 
 [[package]]

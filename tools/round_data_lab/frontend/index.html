@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Round Data Lab</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <style>
+      :root {
+        --bg: #f4efe5;
+        --bg-accent: radial-gradient(circle at top left, rgba(171, 120, 63, 0.25), transparent 34%), radial-gradient(circle at bottom right, rgba(34, 70, 74, 0.18), transparent 28%), linear-gradient(180deg, #f6f1e8 0%, #efe7d6 100%);
+        --panel: rgba(255, 251, 244, 0.88);
+        --panel-strong: rgba(255, 253, 249, 0.96);
+        --line: rgba(87, 73, 53, 0.12);
+        --ink: #1f2d2e;
+        --muted: #6b6a61;
+        --accent: #8c4f20;
+        --accent-2: #2f5b5d;
+        --good: #2d6a4f;
+        --soft: #d8c8ab;
+        --danger: #a33c2f;
+        --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+        --serif: Georgia, "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--ink);
+        background: var(--bg-accent);
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+      }
+      body { padding: 20px; }
+      .shell {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 18px;
+        min-height: calc(100vh - 40px);
+      }
+      .sidebar,
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 18px 60px rgba(49, 43, 31, 0.08);
+      }
+      .sidebar {
+        padding: 22px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .hero {
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 700;
+      }
+      h1 {
+        margin: 10px 0 8px;
+        font-family: var(--serif);
+        font-size: 30px;
+        line-height: 1.05;
+        font-weight: 700;
+      }
+      .subtle {
+        font-size: 14px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+      .menuBlock { display: grid; gap: 10px; }
+      .menuTitle {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .roundList,
+      .productList {
+        display: grid;
+        gap: 10px;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+      .roundCard,
+      .productCard {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel-strong);
+        padding: 14px;
+        cursor: pointer;
+        text-align: left;
+        transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+      }
+      .roundCard:hover,
+      .productCard:hover {
+        transform: translateY(-1px);
+        border-color: rgba(140, 79, 32, 0.28);
+        box-shadow: 0 14px 28px rgba(49, 43, 31, 0.08);
+      }
+      .selected {
+        border-color: rgba(140, 79, 32, 0.5);
+        box-shadow: inset 0 0 0 1px rgba(140, 79, 32, 0.2);
+      }
+      .roundCard strong,
+      .productCard strong {
+        display: block;
+        font-size: 16px;
+        margin-bottom: 4px;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: rgba(47, 91, 93, 0.08);
+        color: var(--accent-2);
+      }
+      .panel {
+        padding: 18px;
+        display: grid;
+        grid-template-rows: auto auto auto 1fr;
+        gap: 16px;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .topbar h2 {
+        margin: 6px 0 0;
+        font-family: var(--serif);
+        font-size: 28px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .tabButton {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.62);
+        color: var(--muted);
+        padding: 9px 14px;
+        cursor: pointer;
+      }
+      .tabButton.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: transparent;
+      }
+      .summaryGrid,
+      .metricsGrid,
+      .boundaryGrid {
+        display: grid;
+        gap: 12px;
+      }
+      .summaryGrid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+      .productStrip {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+      .metricsGrid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      }
+      .boundaryGrid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 14px 16px;
+      }
+      .cardLabel {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+        font-weight: 700;
+      }
+      .cardValue {
+        margin-top: 8px;
+        font-size: 23px;
+        font-weight: 700;
+      }
+      .cardNote {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(300px, 420px) 1fr;
+        gap: 16px;
+        min-height: 0;
+      }
+      .inspector {
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+      .chartCard {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 10px 12px;
+        min-height: 0;
+      }
+      .chart {
+        width: 100%;
+        height: 560px;
+      }
+      .scores {
+        display: grid;
+        gap: 10px;
+      }
+      .scoreRow {
+        display: grid;
+        grid-template-columns: 110px 1fr 44px;
+        gap: 8px;
+        align-items: center;
+      }
+      .scoreBar {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(47, 91, 93, 0.12);
+        overflow: hidden;
+      }
+      .scoreBar span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+      }
+      .mono { font-family: var(--mono); }
+      .generatorWrap {
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) 1fr;
+        gap: 16px;
+      }
+      .formGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+      .field label {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+      }
+      .field input,
+      .field select {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 10px 12px;
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .download,
+      .primary,
+      .secondary {
+        border-radius: 999px;
+        padding: 10px 16px;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+      .primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      .secondary {
+        background: rgba(47, 91, 93, 0.08);
+        color: var(--accent-2);
+      }
+      .download {
+        background: #15803d;
+        color: #fff;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        line-height: 1.45;
+        padding: 14px;
+        border-radius: 16px;
+        background: #132022;
+        color: #edf7f2;
+        overflow: auto;
+      }
+      .empty {
+        padding: 28px;
+        border: 1px dashed rgba(87, 73, 53, 0.22);
+        border-radius: 20px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      @media (max-width: 1080px) {
+        .shell,
+        .workspace,
+        .generatorWrap {
+          grid-template-columns: 1fr;
+        }
+        .chart { height: 420px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <section class="hero">
+          <div class="eyebrow">Analyzer + Generator</div>
+          <h1>Round Data Lab</h1>
+          <div class="subtle">
+            Pick a round, inspect the product type, then push its profile straight into a synthetic generator.
+          </div>
+        </section>
+
+        <section class="menuBlock">
+          <div class="menuTitle">Rounds</div>
+          <div id="roundList" class="roundList"></div>
+        </section>
+
+        <div id="status" class="status">Loading round catalog…</div>
+      </aside>
+
+      <main class="panel">
+        <div class="topbar">
+          <div>
+            <div class="eyebrow" id="contextEyebrow">Round</div>
+            <h2 id="contextTitle">Select a round</h2>
+          </div>
+          <div class="tabs">
+            <button class="tabButton active" data-tab="analyzer">Analyzer</button>
+            <button class="tabButton" data-tab="generator">Generator</button>
+          </div>
+        </div>
+
+        <div id="roundOverview" class="summaryGrid"></div>
+        <div id="activePane"></div>
+      </main>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        rounds: [],
+        selectedRound: null,
+        roundSummary: null,
+        selectedProduct: null,
+        productDetail: null,
+        generatorMeta: null,
+        generatorConfig: null,
+        generated: null,
+        activeTab: "analyzer",
+      };
+
+      async function api(url, options) {
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        return res.json();
+      }
+
+      function setStatus(text) {
+        $("status").textContent = text;
+      }
+
+      function num(value, digits = 2) {
+        return Number(value ?? 0).toFixed(digits);
+      }
+
+      function productShort(product) {
+        return product.replaceAll("_", " ");
+      }
+
+      function displayType(typeKey) {
+        return String(typeKey || "").replaceAll("_", " ");
+      }
+
+      function renderRounds() {
+        const host = $("roundList");
+        host.innerHTML = "";
+        state.rounds.forEach((roundInfo) => {
+          const button = document.createElement("button");
+          button.className = `roundCard${state.selectedRound === roundInfo.round ? " selected" : ""}`;
+          const leadTypes = roundInfo.products.map((product) => product.type_label).join(" · ");
+          button.innerHTML = `
+            <strong>Round ${roundInfo.round}</strong>
+            <div class="subtle">${roundInfo.product_count} products</div>
+            <div class="cardNote">${leadTypes || "No profiles"}</div>
+          `;
+          button.addEventListener("click", () => loadRound(roundInfo.round));
+          host.appendChild(button);
+        });
+      }
+
+      function renderOverview() {
+        const host = $("roundOverview");
+        const products = state.roundSummary?.products || [];
+        if (!products.length) {
+          host.className = "summaryGrid";
+          host.innerHTML = `
+            <div class="card">
+              <div class="cardLabel">Ready</div>
+              <div class="cardValue">Pick a round</div>
+              <div class="cardNote">The opening menu is your round selector. Once a round is loaded, each product card will show its inferred type.</div>
+            </div>
+          `;
+          return;
+        }
+        host.className = "productStrip";
+        host.innerHTML = "";
+        products.forEach((product) => {
+          const node = document.createElement("button");
+          node.className = `productCard${state.selectedProduct === product.product ? " selected" : ""}`;
+          node.innerHTML = `
+            <div class="cardLabel">${productShort(product.product)}</div>
+            <div class="cardValue">${product.type_label}</div>
+            <div class="cardNote">soft band ${num(product.boundaries.mid_soft.lower, 1)} to ${num(product.boundaries.mid_soft.upper, 1)}</div>
+          `;
+          node.addEventListener("click", () => loadProduct(product.product));
+          host.appendChild(node);
+        });
+      }
+
+      function renderTypeScores(scores) {
+        const entries = Object.entries(scores || {}).sort((a, b) => b[1] - a[1]);
+        if (!entries.length) return `<div class="empty">No type scores available.</div>`;
+        return `
+          <div class="scores">
+            ${entries.map(([label, score]) => `
+              <div class="scoreRow">
+                <div>${label.replaceAll("_", " ")}</div>
+                <div class="scoreBar"><span style="width:${Math.max(0, Math.min(100, score * 100))}%"></span></div>
+                <div class="mono">${num(score * 100, 0)}%</div>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      function boundaryCards(boundaries) {
+        return Object.entries(boundaries || {}).map(([name, band]) => `
+          <div class="card">
+            <div class="cardLabel">${name.replaceAll("_", " ")}</div>
+            <div class="cardValue mono">${num(band.lower, 2)} to ${num(band.upper, 2)}</div>
+          </div>
+        `).join("");
+      }
+
+      function renderAnalyzerPane() {
+        if (!state.productDetail) {
+          return `<div class="empty">Choose a product to inspect its type, metrics, boundaries, and chart.</div>`;
+        }
+        const profile = state.productDetail;
+        return `
+          <div class="workspace">
+            <section class="inspector">
+              <div class="card">
+                <div class="cardLabel">Classification</div>
+                <div class="cardValue">${profile.type_label}</div>
+                <div class="cardNote">${profile.description}</div>
+                <div class="cardNote">confidence ${num(profile.confidence * 100, 1)}%</div>
+              </div>
+              <div class="card">
+                <div class="cardLabel">Type Scores</div>
+                <div style="margin-top:12px;">${renderTypeScores(profile.type_scores)}</div>
+              </div>
+              <div class="metricsGrid">
+                ${Object.entries(profile.metrics).slice(0, 8).map(([name, value]) => `
+                  <div class="card">
+                    <div class="cardLabel">${name.replaceAll("_", " ")}</div>
+                    <div class="cardValue mono">${num(value, 3)}</div>
+                  </div>
+                `).join("")}
+              </div>
+              <div class="boundaryGrid">${boundaryCards(profile.boundaries)}</div>
+            </section>
+            <section class="chartCard">
+              <div class="cardLabel" style="padding: 6px 6px 10px;">Observed Bid / Ask / Trend</div>
+              <div id="profileChart" class="chart"></div>
+            </section>
+          </div>
+        `;
+      }
+
+      function renderGeneratorForm() {
+        if (!state.generatorMeta) {
+          return `<div class="empty">Loading generator metadata…</div>`;
+        }
+        const config = state.generatorConfig || state.generatorMeta.defaults.flat_random_walk;
+        const typeOptions = Object.entries(state.generatorMeta.types).map(([key, description]) => `
+          <option value="${key}" ${config.type_key === key ? "selected" : ""}>${displayType(key)}</option>
+        `).join("");
+        const eventOptions = Object.entries(state.generatorMeta.event_modes || {}).map(([key, description]) => `
+          <option value="${key}" ${config.major_event_mode === key ? "selected" : ""}>${displayType(key)}</option>
+        `).join("");
+
+        const fields = state.generatorMeta.parameter_schema.map((field) => {
+          const isSeed = field.key === "seed";
+          const raw = config[field.key];
+          const displayVal =
+            isSeed && (raw === null || raw === undefined) ? "" : String(raw ?? "");
+          const placeholder = isSeed ? 'placeholder="Random Seed"' : "";
+          return `
+          <div class="field">
+            <label for="${field.key}">${field.label}${isSeed ? ' <span class="subtle" style="font-weight:400;letter-spacing:0;text-transform:none">(optional)</span>' : ""}</label>
+            <input
+              id="${field.key}"
+              data-config="${field.key}"
+              type="number"
+              step="${field.step}"
+              min="${field.min}"
+              max="${field.max}"
+              value="${displayVal}"
+              ${placeholder}
+            />
+          </div>
+        `;
+        }).join("");
+
+        return `
+          <div class="generatorWrap">
+            <section class="inspector">
+              <div class="card">
+                <div class="cardLabel">Generator Mode</div>
+                <div class="formGrid" style="margin-top: 14px;">
+                  <div class="field" style="grid-column: 1 / span 2;">
+                    <label for="product_name">Product Name</label>
+                    <input id="product_name" data-config="product_name" value="${config.product_name || ""}" />
+                  </div>
+                  <div class="field" style="grid-column: 1 / span 2;">
+                    <label for="type_key">Product Type</label>
+                    <select id="type_key" data-config="type_key">${typeOptions}</select>
+                  </div>
+                  <div class="field" style="grid-column: 1 / span 2;">
+                    <label for="major_event_mode">Single Major Event</label>
+                    <select id="major_event_mode" data-config="major_event_mode">${eventOptions}</select>
+                  </div>
+                  ${fields}
+                </div>
+                <div class="actions" style="margin-top: 16px;">
+                  <button class="primary" id="previewGenerator">Preview Synthetic Data</button>
+                  <button class="secondary" id="loadTypeDefault">Type Default</button>
+                  <button class="secondary" id="loadProductTemplate" ${state.productDetail ? "" : "disabled"}>Use Product Template</button>
+                  <button class="download" id="downloadCsv" ${state.generated?.csv_full ? "" : "disabled"}>Download CSV</button>
+                </div>
+              </div>
+            </section>
+            <section class="inspector">
+              <div class="card">
+                <div class="cardLabel">Generator Output</div>
+                <div id="generatorSummary" class="cardNote" style="margin-top: 12px;">
+                  Generate a preview to see the resulting synthetic profile and CSV slice.
+                </div>
+              </div>
+              <div class="chartCard">
+                <div class="cardLabel" style="padding: 6px 6px 10px;">Synthetic Bid / Ask / Trend</div>
+                <div id="generatedChart" class="chart"></div>
+              </div>
+              <div class="card">
+                <div class="cardLabel">CSV Preview</div>
+                <div style="margin-top: 12px;"><pre id="csvPreview">No synthetic preview yet.</pre></div>
+              </div>
+            </section>
+          </div>
+        `;
+      }
+
+      function renderPane() {
+        $("activePane").innerHTML = state.activeTab === "analyzer" ? renderAnalyzerPane() : renderGeneratorForm();
+        if (state.activeTab === "analyzer" && state.productDetail) {
+          plotProfile("profileChart", state.productDetail, `${productShort(state.productDetail.product)} observed`);
+        }
+        if (state.activeTab === "generator") {
+          wireGeneratorForm();
+          if (state.generated?.profile) {
+            updateGeneratedPane();
+          }
+        }
+      }
+
+      function plotProfile(targetId, profile, title) {
+        const points = profile.chart_points || [];
+        const x = points.map((point) => `${point.day}:${point.timestamp}`);
+        const layout = {
+          title,
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(255,255,255,0.35)",
+          margin: { l: 45, r: 18, t: 46, b: 46 },
+          legend: { orientation: "h" },
+          xaxis: { title: "day:timestamp" },
+          yaxis: { title: "price" },
+        };
+        const data = [
+          { x, y: points.map((point) => point.bid), name: "bid_1", type: "scatter", mode: "lines", line: { color: "#2f5b5d", width: 1.3 } },
+          { x, y: points.map((point) => point.ask), name: "ask_1", type: "scatter", mode: "lines", line: { color: "#a33c2f", width: 1.3 } },
+        ];
+        const hasTrend = points.some((point) => point.trend !== null && point.trend !== undefined);
+        if (hasTrend) {
+          data.push({
+            x,
+            y: points.map((point) => point.trend),
+            name: "trend fit",
+            type: "scatter",
+            mode: "lines",
+            line: { color: "#8c4f20", width: 2.1, dash: "dot" },
+          });
+        }
+        Plotly.react(targetId, data, layout, { responsive: true });
+      }
+
+      function updateContext() {
+        $("contextEyebrow").textContent = state.selectedRound !== null ? `Round ${state.selectedRound}` : "Round";
+        $("contextTitle").textContent = state.selectedProduct ? productShort(state.selectedProduct) : (state.selectedRound !== null ? `Round ${state.selectedRound} products` : "Select a round");
+      }
+
+      async function loadRound(roundNum) {
+        setStatus(`Loading round ${roundNum}…`);
+        state.selectedRound = roundNum;
+        state.selectedProduct = null;
+        state.productDetail = null;
+        state.generated = null;
+        state.roundSummary = await api(`/api/round/${roundNum}`);
+        renderRounds();
+        renderOverview();
+        updateContext();
+        renderPane();
+        setStatus(`Loaded round ${roundNum}. Click a product card at the top to inspect it.`);
+      }
+
+      async function loadProduct(product) {
+        if (state.selectedRound === null) return;
+        setStatus(`Loading ${productShort(product)}…`);
+        state.selectedProduct = product;
+        state.productDetail = await api(`/api/round/${state.selectedRound}/product/${encodeURIComponent(product)}`);
+        state.generatorConfig = { ...state.productDetail.generator_template };
+        state.generated = null;
+        renderOverview();
+        updateContext();
+        renderPane();
+        setStatus(`Loaded ${productShort(product)}. The generator tab now has its analyzed template ready.`);
+      }
+
+      function syncConfigFromForm() {
+        const next = { ...(state.generatorConfig || {}) };
+        document.querySelectorAll("[data-config]").forEach((node) => {
+          const key = node.dataset.config;
+          if (node.tagName === "SELECT") {
+            next[key] = node.value;
+          } else if (node.id === "product_name") {
+            next[key] = node.value;
+          } else {
+            next[key] = node.value === "" ? null : Number(node.value);
+          }
+        });
+        state.generatorConfig = next;
+      }
+
+      function wireGeneratorForm() {
+        document.querySelectorAll("[data-config]").forEach((node) => {
+          node.addEventListener("input", () => syncConfigFromForm());
+          node.addEventListener("change", () => {
+            syncConfigFromForm();
+            if (node.dataset.config === "type_key" && state.generatorMeta) {
+              const defaults = state.generatorMeta.defaults[node.value];
+              state.generatorConfig = { ...defaults, product_name: state.generatorConfig?.product_name || defaults.product_name };
+              state.generated = null;
+              renderPane();
+            }
+          });
+        });
+
+        $("previewGenerator").addEventListener("click", async () => {
+          syncConfigFromForm();
+          setStatus(`Generating ${state.generatorConfig.type_key.replaceAll("_", " ")} preview…`);
+          state.generated = await api("/api/generator/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(state.generatorConfig),
+          });
+          updateGeneratedPane();
+          setStatus(`Generated ${state.generated.row_count} synthetic rows.`);
+        });
+
+        $("loadTypeDefault").addEventListener("click", () => {
+          const typeKey = state.generatorConfig?.type_key || "flat_random_walk";
+          state.generatorConfig = { ...state.generatorMeta.defaults[typeKey] };
+          state.generated = null;
+          renderPane();
+        });
+
+        const loadTemplate = $("loadProductTemplate");
+        if (loadTemplate) {
+          loadTemplate.addEventListener("click", () => {
+            if (!state.productDetail) return;
+            state.generatorConfig = { ...state.productDetail.generator_template };
+            state.generated = null;
+            renderPane();
+          });
+        }
+
+        const downloadCsv = $("downloadCsv");
+        if (downloadCsv) {
+          downloadCsv.addEventListener("click", () => {
+            if (!state.generated?.csv_full) return;
+            const blob = new Blob([state.generated.csv_full], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            const product = (state.generated.config?.product_name || "generated_data").replace(/[^a-z0-9_-]+/gi, "_");
+            link.href = url;
+            link.download = `${product}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          });
+        }
+      }
+
+      function updateGeneratedPane() {
+        if (!state.generated?.profile) return;
+        $("generatorSummary").innerHTML = `
+          <strong>${state.generated.profile.type_label}</strong><br />
+          ${state.generated.profile.description}<br />
+          soft band ${num(state.generated.profile.boundaries.mid_soft.lower, 2)} to ${num(state.generated.profile.boundaries.mid_soft.upper, 2)} · confidence ${num(state.generated.profile.confidence * 100, 1)}%<br />
+          event mode ${String(state.generated.config.major_event_mode || "none").replaceAll("_", " ")}<br />
+          <span class="mono">seed ${state.generated.config.seed}</span> (leave Seed empty for a new random draw each preview)<br />
+          <span class="mono">${state.generated.row_count.toLocaleString()} rows</span> generated · CSV preview is first 50 lines
+        `;
+        $("csvPreview").textContent = state.generated.csv_preview || "No CSV preview.";
+        const downloadCsv = $("downloadCsv");
+        if (downloadCsv) {
+          downloadCsv.disabled = !state.generated.csv_full;
+        }
+        plotProfile("generatedChart", state.generated.profile, `${productShort(state.generated.profile.product)} synthetic`);
+      }
+
+      function switchTab(tab) {
+        state.activeTab = tab;
+        document.querySelectorAll(".tabButton").forEach((button) => {
+          button.classList.toggle("active", button.dataset.tab === tab);
+        });
+        renderPane();
+      }
+
+      async function bootstrap() {
+        try {
+          const [rounds, generatorMeta] = await Promise.all([
+            api("/api/rounds"),
+            api("/api/generator/meta"),
+          ]);
+          state.rounds = rounds.rounds || [];
+          state.generatorMeta = generatorMeta;
+          renderRounds();
+          renderOverview();
+          renderPane();
+          updateContext();
+          if (state.rounds.length) {
+            await loadRound(state.rounds[0].round);
+          } else {
+            setStatus("No round datasets were found.");
+          }
+        } catch (error) {
+          console.error(error);
+          setStatus(`Error: ${error.message}`);
+        }
+      }
+
+      document.querySelectorAll(".tabButton").forEach((button) => {
+        button.addEventListener("click", () => switchTab(button.dataset.tab));
+      });
+
+      bootstrap();
+    </script>
+  </body>
+</html>

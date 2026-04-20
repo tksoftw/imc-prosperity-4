@@ -115,23 +115,22 @@ def build_bids_from_clusters(clusters: list[Cluster], base_floor: int) -> dict[i
     return bids
 
 
-def _speed_at(bids_vec: np.ndarray, z: int) -> float:
-    """Speed if you bid z; `bids_vec` is the count of OTHER bidders per integer."""
+def _bottom_rank(bids_vec: np.ndarray, z: int) -> int:
+    """Effective last-place rank if you bid z against `bids_vec` OTHER bidders.
+
+    Mirrors the tie-collapse rule in `allocation.speed_fast`: the whole lowest-
+    bid tier occupies a single rank slot, so `rank/total` and the slope of the
+    speed curve both use this as the denominator.
+    """
     counts = bids_vec.copy()
     counts[z] += 1
     total = int(counts.sum())
-    if total <= 1:
-        return 0.9
     active = np.flatnonzero(counts)
+    if active.size == 0 or total <= 1:
+        return 1
     min_bid = int(active[0])
-    max_bid = int(active[-1])
-    if z == max_bid:
-        return 0.9
-    if z == min_bid:
-        return 0.1
-    your_rank = int(counts[z + 1 :].sum()) + 1
-    m = (0.1 - 0.9) / (total - 1)
-    return 0.9 + m * (your_rank - 1)
+    count_min = int(counts[min_bid])
+    return max(1, total - count_min + 1)
 
 
 def compute(req: ComputeRequest) -> dict[str, Any]:
@@ -144,7 +143,8 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
 
     profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(bids, budget=budget)
 
-    speed_curve = [_speed_at(bids_vec, z) for z in range(101)]
+    speed_vec = speed_fast(bids)
+    speed_curve = speed_vec.tolist()
     above_curve = [int(bids_vec[z + 1 :].sum()) for z in range(101)]
 
     # Plotly / JSON cannot carry NaN; send None for masked cells.
@@ -154,14 +154,11 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
     ]
 
     z_probe = int(req.probe_z)
-    probe_speed = _speed_at(bids_vec, z_probe)
-    counts_with_probe = bids_vec.copy()
-    counts_with_probe[z_probe] += 1
-    probe_total = int(counts_with_probe.sum())
-    probe_rank = int(counts_with_probe[z_probe + 1 :].sum()) + 1
+    probe_speed = float(speed_vec[z_probe])
+    probe_total = _bottom_rank(bids_vec, z_probe)
+    probe_rank = int(bids_vec[z_probe + 1 :].sum()) + 1
 
     # Best (x, y) when forced to bid z = probe_z.
-    speed_vec = speed_fast(bids)
     research_vec = research_fast()
     scale_vec = scale_fast()
     xs = np.arange(101)[:, None]

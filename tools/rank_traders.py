@@ -65,7 +65,7 @@ def run_backtest(
     run_id = f"rank_round{round_num}_{trader_path.stem}_d{day}"
     run_dir = RUNS_DIR / run_id
     metrics_path = run_dir / "metrics.json"
-    submission_log_path = run_dir / f"submission_{trader_path.stem}.log"
+    submission_log_path = run_dir / f"submission_{trader_path.stem}_d{day}.log"
 
     if metrics_path.exists() and submission_log_path.exists():
         return json.loads(metrics_path.read_text()), submission_log_path
@@ -103,7 +103,7 @@ def run_backtest(
         raise FileNotFoundError(f"Expected metrics file not found: {metrics_path}")
     try:
         p = run_dir / "submission.log"
-        submission_log_path = p.rename(p.with_name(p.stem + '_' + trader_path.stem + '.log'))
+        submission_log_path = p.rename(p.with_name(p.stem + '_' + trader_path.stem + f'_d{day}.log'))
     except Exception as e:
         raise FileNotFoundError(
             f"Error while renaming: original expected submission.log not found: {e}"

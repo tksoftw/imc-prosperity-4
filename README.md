@@ -106,12 +106,18 @@ The competition only allows the following libraries inside trader files
 
 > Note: all programs should be run in the `.venv`
 
+### General tools
+
 ### [rank traders](tools/rank_traders.py)
 
 `python3 tools/rank_traders.py --round <N>`
 > also: show individual products with `--show-per-product`
 
 
+### [round data lab](tools/round_data_lab/README.md)
+`uvicorn tools.round_data_lab.server:app --reload --port 8002`
+
+### By round
 
 <details>
 <summary>Round 1</summary>
@@ -128,8 +134,6 @@ The competition only allows the following libraries inside trader files
 `uvicorn tools.allocation_webviz.server:app --reload --port 8001`
 
 </details>
-
----
 
 ## Optional additions
 
