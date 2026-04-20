@@ -109,6 +109,8 @@ The competition only allows the following libraries inside trader files
 ### [rank traders](tools/rank_traders.py)
 
 `python3 tools/rank_traders.py --round <N>`
+> also: show individual products with `--show-per-product`
+
 
 
 <details>

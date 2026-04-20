@@ -55,25 +55,17 @@ def discover_days(data_dir: Path, round_num: int) -> list[int]:
     return sorted(days)
 
 
-def stable_slug(path: Path, round_dir: Path) -> str:
-    rel = path.relative_to(round_dir).as_posix()
-    digest = hashlib.sha1(rel.encode("utf-8")).hexdigest()[:10]
-    stem = re.sub(r"[^a-zA-Z0-9]+", "_", rel).strip("_").lower()
-    return f"{stem[:50]}_{digest}"
-
-
 def run_backtest(
     trader_path: Path,
     day: int,
     round_num: int,
-    round_dir: Path,
     data_dir: Path,
 ) -> tuple[dict, Path]:
     dataset = data_dir / f"prices_round_{round_num}_day_{day}.csv"
-    run_id = f"rank_round{round_num}__{stable_slug(trader_path, round_dir)}__d{day}"
+    run_id = f"rank_round{round_num}_{trader_path.stem}_d{day}"
     run_dir = RUNS_DIR / run_id
     metrics_path = run_dir / "metrics.json"
-    submission_log_path = run_dir / "submission.log"
+    submission_log_path = run_dir / f"submission_{trader_path.stem}.log"
 
     if metrics_path.exists() and submission_log_path.exists():
         return json.loads(metrics_path.read_text()), submission_log_path
@@ -90,9 +82,9 @@ def run_backtest(
         "--output-root",
         str(RUNS_DIR.relative_to(ROOT)),
         "--artifact-mode",
-        "submission",
+        "full",
         "--products",
-        "summary",
+        "full",
     ]
     completed = subprocess.run(
         cmd,
@@ -109,9 +101,12 @@ def run_backtest(
         )
     if not metrics_path.exists():
         raise FileNotFoundError(f"Expected metrics file not found: {metrics_path}")
-    if not submission_log_path.exists():
+    try:
+        p = run_dir / "submission.log"
+        submission_log_path = p.rename(p.with_name(p.stem + '_' + trader_path.stem + '.log'))
+    except Exception as e:
         raise FileNotFoundError(
-            f"Expected submission log not found: {submission_log_path}"
+            f"Error while renaming: original expected submission.log not found: {e}"
         )
     return json.loads(metrics_path.read_text()), submission_log_path
 
@@ -153,7 +148,6 @@ def evaluate_trader(
     trader_path: Path,
     days: Iterable[int],
     round_num: int,
-    round_dir: Path,
     data_dir: Path,
 ) -> TraderResult:
     totals_by_day: dict[int, float] = {}
@@ -164,7 +158,7 @@ def evaluate_trader(
     bot_trade_count_by_day_per_product: dict[int, dict[str, int]] = {}
     for day in days:
         metrics, submission_log_path = run_backtest(
-            trader_path, day, round_num, round_dir, data_dir
+            trader_path, day, round_num, data_dir
         )
         totals_by_day[day] = float(metrics["final_pnl_total"])
         per_product_by_day[day] = {
@@ -381,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     for index, trader_path in enumerate(traders, start=1):
         rel = trader_path.relative_to(round_dir).as_posix()
         print(f"[{index}/{len(traders)}] Evaluating {rel}")
-        results.append(evaluate_trader(trader_path, days, args.round, round_dir, data_dir))
+        results.append(evaluate_trader(trader_path, days, args.round, data_dir))
 
     results.sort(
         key=lambda item: (item.total_pnl, item.avg_pnl, item.min_day_pnl),
