@@ -104,7 +104,7 @@ The competition only allows the following libraries inside trader files
 
 ## Tools we built
 
-> Note: all programs should be run in the `.venv`
+> Note: Run all programs in the `.venv`
 
 ### General tools
 
