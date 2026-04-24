@@ -3,159 +3,173 @@
 ## Quick Links
 [Official Discord Server](https://discord.gg/SABeB8uKxd) |
 [Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki) |
-[Online Visualizer/Leaderboard](https://prosperity.equirag.com/) | 
+[Online Visualizer/Leaderboard](https://prosperity.equirag.com/) |
 [Hedgehogs writeup](examples/hedgehogs.md)
-
 
 ---
 
 ## Contents
 
-- [Setup (WSL + uv)](#setup-wsl--uv)
-  - [1. Install WSL (Windows only. macOS users skip to step 2)](#1-install-wsl-windows-only--macos-users-skip-to-step-2)
-  - [2. Install uv](#2-install-uv)
-  - [3. Clone + sync](#3-clone--sync)
-  - [4. Activate the venv](#4-activate-the-venv)
-  - [5. Connect VS Code to WSL](#5-connect-vs-code-to-wsl)
-  - [6. Editor extensions (optional, VS Code / Cursor)](#6-editor-extensions-optional-vs-code--cursor)
-- [Running things](#running-things)
-- [External tools](#external-tools)
-- [Reference repos & writeups](#reference-repos--writeups)
-- [Libraries allowed in submissions](#libraries-allowed-in-submissions)
+- [Quickstart](#quickstart)
+- [Tools we use](#tools-we-use)
+- [Tools we built](#tools-we-built)
+- [Optional additions](#optional-additions)
+    - [Create a `.venv` alias](#create-a-venv-alias)
+    - [Use WSL in VS Code/Cursor](#use-wsl-in-vs-codecursor)
+    - [Editor extensions](#editor-extensions)
+- [Writeups & reference repos](#writeups--reference-repos)
 
 ---
 
-## Setup (WSL + uv)
+## Quickstart
 
-This project runs on Linux/WSL using [uv](https://docs.astral.sh/uv/) for
-dependency management. On Windows, you should do **all** of this inside WSL, not
-PowerShell. We primarally need WSL for the [backtester](https://github.com/tksoftw/prosperity_rust_backtester), but Streamlit/Uvicorn/matplotlib tooling is much easier on Linux.
+### Windows
 
-### 1. Install WSL (Windows only. **macOS users skip to step 2**)
-
-From an **admin** PowerShell:
-
+Admin PowerShell:
 ```powershell
-wsl --install -d Ubuntu
+# 1. From an ADMIN PowerShell. Reboot afterwards, then launch "WSL" from Start.
+wsl --install
 ```
-
-Reboot, launch `Ubuntu` from the Start menu, create your user, then:
-
+Ubuntu:
 ```bash
+# 2. Inside the Ubuntu (WSL) shell from here on:
 sudo apt update && sudo apt install -y build-essential git curl
+curl -LsSf https://astral.sh/uv/install.sh | sh && exec bash
+git clone https://github.com/tksoftw/imc-prosperity-4 && cd imc-prosperity-4
+uv sync --extra dev && source .venv/bin/activate
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . "$HOME/.cargo/env"
+cargo install rust_backtester --locked
 ```
 
-> **Cisco AnyConnect users:** WSL2's default NAT networking
-> breaks while AnyConnect is connected (DNS + `curl` fail inside WSL). Fix it
-> by switching WSL to mirrored networking. Create `C:\Users\<you>\.wslconfig`
-> (e.g. `C:\Users\tk\.wslconfig`) containing:
->
-> ```ini
-> [wsl2]
-> networkingMode=mirrored
-> ```
->
-> Then from PowerShell run `wsl --shutdown` and reopen Ubuntu. Verify with
-> `curl -I https://astral.sh` from inside WSL.
+<details>
+<summary><b>Trouble connecting to the Internet on WSL? (Cisco AnyConnect / other VPN)</b></summary>
 
-### 2. Install uv
+>WSL2's default NAT networking breaks while AnyConnect is connected (DNS + `curl` fail inside WSL). Switch WSL to mirrored networking by creating `C:\Users\<you>\.wslconfig` with:
+>
+>```ini
+>[wsl2]
+>networkingMode=mirrored
+>```
+>
+>Then from PowerShell run `wsl --shutdown` and reopen Ubuntu. Verify with `curl -I https://astral.sh` from inside WSL.
+
+</details>
+
+
+### macOS
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-exec bash        # reload shell so `uv` is on PATH
-uv --version
-```
-
-### 3. Clone + sync
-
-```bash
-git clone <this-repo> imc-prosperity-4
-cd imc-prosperity-4
-
-# Creates .venv/, installs everything from pyproject.toml + uv.lock.
-# Add --extra dev for the ML notebook / test deps.
-uv sync --extra dev
-```
-
-`uv sync` resolves the lockfile, creates `.venv/`, and installs exactly the
-pinned versions. Rerun it whenever `pyproject.toml` or `uv.lock` changes.
-
-### 4. Activate the venv
-
-From the repo root:
-
-```bash
-source .venv/bin/activate
-python3 --version
-deactivate      # exit
-```
-
-> **Optional:** add this alias to your `~/.bashrc` so you can just type `vv`
-> from the repo root to activate:
->
-> ```bash
-> alias vv="source .venv/bin/activate"
-> ```
->
-> Then `source ~/.bashrc` to pick it up in the current shell.
-
-### 5. Connect VS Code to WSL
-
-Open VS Code on Windows and connect it to your WSL environment:
-
-1. Press **Ctrl+Shift+P** to open the command palette
-2. Type **"connect to wsl"**
-3. Select **WSL: Connect to WSL**
-
-This allows you to edit code on Windows while running everything (Python, git, etc.) inside WSL. You'll see a green "WSL" indicator in the bottom-left corner of VS Code once connected.
-
-
-### 6. Editor extensions (optional, VS Code / Cursor)
-
-- [Edit CSV](https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv)
-- [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
-
----
-
-## Running things
-
-```bash
-vv # activate venv
-
-# rank trader backtests
-python3 tools/rank_traders.py --round 1
-
-# Allocation optimizer (interactive, no reruns). See tools/allocation_webviz/README.md
-uvicorn tools.allocation_webviz.server:app --reload --port 8001
-
-# CLI heatmap
-python tools/allocation.py --heatmap
-
-# add a package to uv
-uv add jsontreeview
-
-# sync packages
-uv sync
+xcode-select --install   # skip if already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh && exec zsh
+git clone https://github.com/tksoftw/imc-prosperity-4 && cd imc-prosperity-4
+uv sync --extra dev && source .venv/bin/activate
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . "$HOME/.cargo/env"
+cargo install rust_backtester --locked
 ```
 
 ---
 
-## External tools
+## Tools we use
 
-- [Rust Backtester (fork)](https://github.com/tksoftw/prosperity_rust_backtester)
-- [Online Visualizer/Leaderboard](https://prosperity.equirag.com/)
+### [uv](https://docs.astral.sh/uv/)
 
-## Reference repos & writeups
+Dependency manager and venv, run from the repo root. Basically a pip replacement. Main uses:
 
-- [CarterT27/imc-prosperity-3](https://github.com/CarterT27/imc-prosperity-3) (9th overall, 2nd US)
-- [Prosperity 3 Sauce doc](https://docs.google.com/document/d/1oYBRozQtJ6HgfmLOf4HesRJFKZLATWrYdkxZDLT47cU/edit?tab=t.0) (9th overall, 2nd US)
-- [Hedgehogs writeup](examples/hedgehogs.md) (2nd overall, very good, detailed writeup)
+1. `source .venv/bin/activate` enter the venv (**important**, *cannot use repo without*)
+2. `deactivate` exit the venv
+3. `uv sync --extra dev` sync packages
+4. `uv add <pkg>` add a new package
+5. `uv remove <pkg>` remove a package
 
-## Libraries allowed in submissions
 
-[pandas](https://pandas.pydata.org/) ·
-[NumPy](https://numpy.org/) ·
-[statistics](https://docs.python.org/3.9/library/statistics.html) ·
-[math](https://docs.python.org/3.9/library/math.html) ·
-[typing](https://docs.python.org/3.9/library/typing.html) ·
+### [Rust backtester](https://github.com/tksoftw/prosperity_rust_backtester)
+
+Note: We mostly use [rank_traders](#rank-traders) for quick backtesting. But otherwise, run `rust_backtester --help` for more information.
+
+### [Online Visualizer](https://prosperity.equirag.com/)
+
+Drop a submission `.log` to render fills, PnL, and the leaderboard. Logs from the [rust backtester](#rust-backtester) are located in the [runs](runs/) folder (generated after at least one backtest is run).
+
+### Submission Libraries
+
+The competition only allows the following libraries inside trader files
+[pandas](https://pandas.pydata.org/),
+[NumPy](https://numpy.org/),
+[statistics](https://docs.python.org/3.9/library/statistics.html),
+[math](https://docs.python.org/3.9/library/math.html),
+[typing](https://docs.python.org/3.9/library/typing.html), and
 [jsonpickle](https://jsonpickle.github.io/)
+
+---
+
+## Tools we built
+
+> Note: Run all programs in the `.venv`
+
+### General tools
+
+### [rank traders](tools/rank_traders.py)
+
+`python3 tools/rank_traders.py --round <N>`
+> also: show individual products with `--show-per-product`
+
+
+### [round data lab](tools/round_data_lab/README.md)
+`uvicorn tools.round_data_lab.server:app --reload --port 8002`
+
+### By round
+
+<details>
+<summary>Round 1</summary>
+
+### [orderbook optimizer](tools/orderbook.py)
+`python3 tools/orderbook.py`
+
+</details>
+
+<details>
+<summary>Round 2</summary>
+
+### [allocation optimizer](tools/allocation_webviz/)
+`uvicorn tools.allocation_webviz.server:app --reload --port 8001`
+
+</details>
+
+## Optional additions
+
+### Create a venv alias
+
+Add to the following to your `~/.bashrc` file (or `~/.zshrc` on macOS):
+
+```bash
+alias vv="source .venv/bin/activate"
+```
+
+Then do `source ~/.bashrc`. Now you can type `vv` to activate the venv.
+
+### Use WSL in VS Code/Cursor
+
+1. Open VS Code on Windows
+2. Press `CTRL`+`SHIFT`+`P`
+3. Type in `WSL: Connect to WSL`
+
+You'll see a green "WSL" indicator in the bottom-left once connected.
+
+### Editor extensions
+
+[Edit CSV](https://marketplace.visualstudio.com/items?itemName=janisdd.vscode-edit-csv)
+
+[Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
+
+---
+
+## Writeups & reference repos
+
+### [Hedgehogs writeup](examples/hedgehogs.md)
+2nd overall, very detailed.
+
+### [CarterT27/imc-prosperity-3](https://github.com/CarterT27/imc-prosperity-3)
+9th overall, 2nd US. Companion [Prosperity 3 Sauce doc](https://docs.google.com/document/d/1oYBRozQtJ6HgfmLOf4HesRJFKZLATWrYdkxZDLT47cU/edit?tab=t.0).
+
+### [Rust Backtester (fork)](https://github.com/tksoftw/prosperity_rust_backtester)
+Source for the `rust_backtester` binary used by `rank_traders.py`.

@@ -8,7 +8,8 @@ to this server for each recompute.
 
 import os
 import sys
-from typing import Any
+import math
+from typing import Any, Literal
 
 import numpy as np
 from fastapi import FastAPI
@@ -38,6 +39,9 @@ class Cluster(BaseModel):
     center: int = Field(ge=0, le=100)
     size: int = Field(ge=0)
     width: int = Field(default=0, ge=0, le=100)
+    weight_mode: Literal["linear", "exponential"] = "linear"
+    # L = mass only on z <= center (spread left); R = only z >= center; F = both sides (symmetric).
+    spread: Literal["L", "R", "F"] = "F"
 
 
 class ComputeRequest(BaseModel):
@@ -45,7 +49,8 @@ class ComputeRequest(BaseModel):
     base_floor: int = Field(default=0, ge=0)
     probe_z: int = Field(default=50, ge=0, le=100)
     budget: int = Field(default=BUDGET_DEFAULT, ge=1)
-    participate_in_auction: bool = True
+    # Optional legacy/global override; when set, replaces every cluster's weight_mode for this request.
+    cluster_weight_mode: Literal["linear", "exponential"] | None = None
 
 
 def _clamp(n: int, lo: int, hi: int) -> int:
@@ -59,6 +64,7 @@ def build_bids_from_clusters(clusters: list[Cluster], base_floor: int) -> dict[i
         center = _clamp(int(c.center), 0, 100)
         size = max(0, int(c.size))
         width = max(0, int(c.width))
+        mode = c.weight_mode
 
         if size == 0:
             continue
@@ -67,16 +73,34 @@ def build_bids_from_clusters(clusters: list[Cluster], base_floor: int) -> dict[i
             bids[center] += size
             continue
 
-        raw: list[list[int]] = []
-        total_weight = 0
-        for b in range(max(0, center - width), min(100, center + width) + 1):
-            weight = width - abs(b - center) + 1
-            raw.append([b, weight])
-            total_weight += weight
+        spread = c.spread
+        if spread == "L":
+            lo, hi = max(0, center - width), center
+        elif spread == "R":
+            lo, hi = center, min(100, center + width)
+        else:
+            lo, hi = max(0, center - width), min(100, center + width)
+
+        raw: list[tuple[int, float]] = []
+        total_weight = 0.0
+        for b in range(lo, hi + 1):
+            if spread == "L":
+                dist = center - b
+            elif spread == "R":
+                dist = b - center
+            else:
+                dist = abs(b - center)
+            if mode == "exponential":
+                # Stronger at center; ~e^-2 at the edge (dist == width).
+                w = math.exp(-2.0 * dist / float(width))
+            else:
+                w = float(width - dist + 1)
+            raw.append((b, w))
+            total_weight += w
 
         assigned = 0
         for b, w in raw:
-            add = (size * w) // total_weight if total_weight else 0
+            add = int(size * w / total_weight) if total_weight else 0
             bids[b] += add
             assigned += add
 
@@ -91,37 +115,36 @@ def build_bids_from_clusters(clusters: list[Cluster], base_floor: int) -> dict[i
     return bids
 
 
-def _speed_at(bids_vec: np.ndarray, z: int) -> float:
-    """Speed if you bid z; `bids_vec` is the count of OTHER bidders per integer."""
+def _bottom_rank(bids_vec: np.ndarray, z: int) -> int:
+    """Effective last-place rank if you bid z against `bids_vec` OTHER bidders.
+
+    Mirrors the tie-collapse rule in `allocation.speed_fast`: the whole lowest-
+    bid tier occupies a single rank slot, so `rank/total` and the slope of the
+    speed curve both use this as the denominator.
+    """
     counts = bids_vec.copy()
     counts[z] += 1
     total = int(counts.sum())
-    if total <= 1:
-        return 0.9
     active = np.flatnonzero(counts)
+    if active.size == 0 or total <= 1:
+        return 1
     min_bid = int(active[0])
-    max_bid = int(active[-1])
-    if z == max_bid:
-        return 0.9
-    if z == min_bid:
-        return 0.1
-    your_rank = int(counts[z + 1 :].sum()) + 1
-    m = (0.1 - 0.9) / (total - 1)
-    return 0.9 + m * (your_rank - 1)
+    count_min = int(counts[min_bid])
+    return max(1, total - count_min + 1)
 
 
 def compute(req: ComputeRequest) -> dict[str, Any]:
-    bids = build_bids_from_clusters(req.clusters, req.base_floor)
+    clusters = list(req.clusters)
+    if req.cluster_weight_mode is not None:
+        clusters = [c.model_copy(update={"weight_mode": req.cluster_weight_mode}) for c in clusters]
+    bids = build_bids_from_clusters(clusters, req.base_floor)
     bids_vec = np.array([bids[i] for i in range(101)], dtype=int)
     budget = int(req.budget)
 
-    profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(
-        bids,
-        budget=budget,
-        participate_in_auction=bool(req.participate_in_auction),
-    )
+    profit_grid, (p_max, xm, ym, zm) = build_profit_grid_fast(bids, budget=budget)
 
-    speed_curve = [_speed_at(bids_vec, z) for z in range(101)]
+    speed_vec = speed_fast(bids)
+    speed_curve = speed_vec.tolist()
     above_curve = [int(bids_vec[z + 1 :].sum()) for z in range(101)]
 
     # Plotly / JSON cannot carry NaN; send None for masked cells.
@@ -131,14 +154,11 @@ def compute(req: ComputeRequest) -> dict[str, Any]:
     ]
 
     z_probe = int(req.probe_z)
-    probe_speed = _speed_at(bids_vec, z_probe)
-    counts_with_probe = bids_vec.copy()
-    counts_with_probe[z_probe] += 1
-    probe_total = int(counts_with_probe.sum())
-    probe_rank = int(counts_with_probe[z_probe + 1 :].sum()) + 1
+    probe_speed = float(speed_vec[z_probe])
+    probe_total = _bottom_rank(bids_vec, z_probe)
+    probe_rank = int(bids_vec[z_probe + 1 :].sum()) + 1
 
     # Best (x, y) when forced to bid z = probe_z.
-    speed_vec = speed_fast(bids)
     research_vec = research_fast()
     scale_vec = scale_fast()
     xs = np.arange(101)[:, None]

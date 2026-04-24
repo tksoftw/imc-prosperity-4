@@ -9,10 +9,6 @@ import random
 # Marginal cost per percentage point is BUDGET / 100.
 BUDGET_DEFAULT = 50_000
 
-# Speed multiplier you get when you skip the auction entirely (no z bid):
-# the floor of the rank curve, i.e. the same value as being last in the auction.
-NON_PARTICIPATION_SPEED = 0.1
-
 
 # ---------------------------------------------------------------------------
 # Slow / scalar versions — readable, used as ground truth.
@@ -37,7 +33,9 @@ def speed(BIDS: dict[int, int], z_percent: int):
     your_rank = sum(count for bid, count in BIDS.items() if z_percent < bid) + 1
 
     total_bids = sum(BIDS.values())
-    m = (0.1 - 0.9) / (total_bids - 1)
+    lowest_bid = min(BIDS)
+    bottom_rank = total_bids - BIDS[lowest_bid] + 1
+    m = (0.1 - 0.9) / (bottom_rank - 1)
     return 0.9 + m * (your_rank - 1)
 
 def spend(x_percent: int, y_percent: int, z_percent: int, budget: int = BUDGET_DEFAULT):
@@ -52,7 +50,7 @@ def profit(x_percent: int, y_percent: int, z_percent: int, BIDS: defaultdict[int
 
 
 # old function
-def build_profit_grid(BIDS, participate_in_auction: bool = True, budget: int = BUDGET_DEFAULT):
+def build_profit_grid(BIDS, participate_in_auction=True, budget: int = BUDGET_DEFAULT):
     profit_grid = np.full((101, 101), np.nan, dtype=float)
 
     p_max = float("-inf")
@@ -60,26 +58,15 @@ def build_profit_grid(BIDS, participate_in_auction: bool = True, budget: int = B
 
     for x in range(101):
         for y in range(101 - x):
-            if participate_in_auction:
-                best_profit = float("-inf")
-                best_z = 0
-                for z in range(101 - x - y):
-                    p_cur = profit(x, y, z, BIDS, budget)
-                    if p_cur > best_profit:
-                        best_profit = p_cur
-                        best_z = z
-            else:
-                # Skip the auction: speed pinned to NON_PARTICIPATION_SPEED, z = 0.
-                best_z = 0
-                best_profit = (
-                    research(x) * scale(y) * NON_PARTICIPATION_SPEED
-                    - spend(x, y, 0, budget)
-                )
-
+            best_profit = float("-inf")
+            for z in range(101 - x - y):
+                p_cur = profit(x, y, z if participate_in_auction else 0, BIDS, budget)
+                if p_cur > p_max:
+                    p_max = p_cur
+                    xm, ym, zm = x, y, z
+                if p_cur > best_profit:
+                    best_profit = p_cur
             profit_grid[x, y] = best_profit
-            if best_profit > p_max:
-                p_max = best_profit
-                xm, ym, zm = x, y, best_z
 
     return profit_grid, (p_max, xm, ym, zm)
 
@@ -101,11 +88,7 @@ def scale_fast() -> np.ndarray:
 
 
 def speed_fast(BIDS: dict[int, int]) -> np.ndarray:
-    """speed(BIDS, z) for z in 0..100, as a length-101 array.
-
-    Equivalent to calling `speed()` 101 times but O(N) in the bid count
-    thanks to a single suffix-sum pass over the bid histogram.
-    """
+    """speed(BIDS, z) for z in 0..100, as a length-101 array."""
     counts = np.zeros(101, dtype=int)
     for bid, count in BIDS.items():
         if 0 <= bid <= 100:
@@ -120,8 +103,8 @@ def speed_fast(BIDS: dict[int, int]) -> np.ndarray:
         speed_lookup.fill(0.9)
         return speed_lookup
 
-    min_bid = int(np.flatnonzero(counts)[0])
-    max_bid = int(np.flatnonzero(counts)[-1])
+    min_other_bid = int(np.flatnonzero(counts)[0])
+    count_min_other = counts[min_other_bid]
 
     # above_counts[z] = number of OTHER bids strictly greater than z
     above_counts = np.zeros(101, dtype=int)
@@ -131,19 +114,30 @@ def speed_fast(BIDS: dict[int, int]) -> np.ndarray:
         running += counts[z]
 
     total_bids = other_total + 1
-    m = (0.1 - 0.9) / (total_bids - 1)
 
     for z in range(101):
-        if z == max_bid:
-            speed_lookup[z] = 0.9
-        elif z == min_bid:
-            speed_lookup[z] = 0.1
+        # 1. Determine the true bottom rank for this specific z-scenario
+        if z < min_other_bid:
+            # Your bid is the new lowest, and you are alone down there.
+            bottom_rank = total_bids
+        elif z == min_other_bid:
+            # You join the existing lowest bracket, increasing the tie count.
+            bottom_rank = total_bids - count_min_other 
         else:
-            your_rank = above_counts[z] + 1
+            # You bid above the lowest bracket, so the bottom tie count remains unchanged.
+            bottom_rank = total_bids - count_min_other + 1
+
+        # 2. Find your specific rank
+        your_rank = above_counts[z] + 1
+
+        # 3. Apply the correct linear scale
+        if bottom_rank <= 1:
+            speed_lookup[z] = 0.9
+        else:
+            m = (0.1 - 0.9) / (bottom_rank - 1)
             speed_lookup[z] = 0.9 + m * (your_rank - 1)
 
     return speed_lookup
-
 
 def spend_fast(x: int, y: int, z_array: np.ndarray, budget: int = BUDGET_DEFAULT) -> np.ndarray:
     """Vectorized `spend()` over a vector of z values for fixed (x, y)."""
@@ -170,30 +164,13 @@ def profit_fast(
     return revenue - cost
 
 
-def build_profit_grid_fast(
-    BIDS,
-    budget: int = BUDGET_DEFAULT,
-    participate_in_auction: bool = True,
-):
+def build_profit_grid_fast(BIDS, budget: int = BUDGET_DEFAULT):
+    profit_grid = np.full((101, 101), np.nan, dtype=float)
+
     research_vec = research_fast()
     scale_vec = scale_fast()
-
-    if not participate_in_auction:
-        # No auction: speed pinned to NON_PARTICIPATION_SPEED, z = 0.
-        # Profit collapses to a 2D problem in (x, y), so vectorize directly.
-        xs = np.arange(101)[:, None]
-        ys = np.arange(101)[None, :]
-        revenue = np.outer(research_vec, scale_vec) * NON_PARTICIPATION_SPEED
-        cost = (budget / 100) * (xs + ys)
-        profit_grid = np.where(xs + ys <= 100, revenue - cost, np.nan)
-
-        flat = int(np.nanargmax(profit_grid))
-        xm, ym = int(flat // 101), int(flat % 101)
-        return profit_grid, (float(profit_grid[xm, ym]), xm, ym, 0)
-
     speed_vec = speed_fast(BIDS)
 
-    profit_grid = np.full((101, 101), np.nan, dtype=float)
     p_max = float("-inf")
     xm = ym = zm = 0
 
@@ -211,6 +188,7 @@ def build_profit_grid_fast(
                 p_max = best_profit
                 xm, ym, zm = x, y, best_z
 
+    print("speed vector:", speed_vec)
     return profit_grid, (p_max, xm, ym, zm)
 
 def plot_heatmap(grid, max_point):
@@ -247,23 +225,15 @@ def main(show_heatmap: bool):
     # Example BIDS distribution(s)
     # there were ~300 manual traders last time
     BIDS = {
-        100: 5,
-        99: 35,
-        98: 60,
-        97: 80,
-        96: 50,
-        95: 30,
-        94: 20,
-        93: 10,
-        92: 5,
-        91: 3,
-        0: 5
+        0: 5000,
+        1: 1,
+        2: 1
     }
 
     BIDS_UNIFORM = {bid: random.randint(1,10) for bid in range(101)}  # uniform distribution of bids
     print(sum(BIDS.values()), "total bids")
 
-    profit_grid, best_point = build_profit_grid(BIDS, participate_in_auction=False)
+    profit_grid, best_point = build_profit_grid_fast(BIDS)
     p_max, xm, ym, zm = best_point
     print(f"Best overall profit: {p_max:.2f} at x={xm}, y={ym}, z={zm}")
 

@@ -24,16 +24,82 @@
       h1 { font-size: 18px; margin: 2px 0 14px; }
       h2 { font-size: 13px; color: var(--muted); margin: 14px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; }
       .cluster { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
-      .cluster .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+      .cluster .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+      .cluster .head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
       .cluster .del { background: transparent; border: none; color: var(--accent-2); cursor: pointer; font-size: 16px; line-height: 1; }
+      button.spreadCycle {
+        width: 22px;
+        height: 22px;
+        min-width: 22px;
+        padding: 0;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: #0c0e13;
+        color: var(--muted);
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      button.spreadCycle:hover { color: var(--text); border-color: var(--accent); }
+      select.clusterMode {
+        width: auto;
+        min-width: 7.5em;
+        max-width: 10em;
+        padding: 2px 6px;
+        font-size: 11px;
+        background: #0c0e13;
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .clusterFileRow {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin: 10px 0 8px;
+      }
+      .clusterFileRow button.ghost,
+      .clusterFileRow label.filePick {
+        width: 100%;
+        padding: 7px 8px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #1a1f28;
+        color: var(--text);
+        cursor: pointer;
+        font-size: 12px;
+        text-align: center;
+        display: block;
+      }
+      .clusterFileRow label.filePick { margin: 0; }
+      .clusterFileRow button.ghost:hover,
+      .clusterFileRow label.filePick:hover { background: #252b38; }
       .row { display: grid; grid-template-columns: 70px 1fr 50px; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+      .row.rowWide { grid-template-columns: 70px 1fr; }
       .row label { color: var(--muted); }
       .row .val { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
       input[type="range"] { width: 100%; }
       input[type="number"] { width: 100%; background: #0c0e13; border: 1px solid var(--border); color: var(--text); padding: 4px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+      input.numTiny { padding: 2px 4px; text-align: right; }
+      input.numTiny::-webkit-outer-spin-button,
+      input.numTiny::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      input.numTiny { -moz-appearance: textfield; }
+      select {
+        width: 100%;
+        background: #0c0e13;
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 6px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
       button.primary { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: #253044; color: var(--text); cursor: pointer; }
       button.primary:hover { background: #2f3c56; }
-      .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 10px; }
+      .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 10px; }
       .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
       .metric .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
       .metric .v { font-size: 18px; font-variant-numeric: tabular-nums; margin-top: 4px; }
@@ -50,19 +116,9 @@
       <aside class="sidebar">
         <h1>Allocation Optimizer</h1>
 
-        <div class="row" style="grid-template-columns: 70px 1fr 90px;">
+        <div class="row rowWide">
           <label>Budget</label>
-          <input type="number" id="budget" min="1" step="1000" value="50000" />
-          <span class="val" id="budgetVal">50,000</span>
-        </div>
-
-        <div class="row">
-          <label>Auction</label>
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
-            <input type="checkbox" id="participate" checked />
-            <span>Participate (else speed = 0.1, z = 0)</span>
-          </label>
-          <span class="val" id="participateVal">on</span>
+          <input type="number" id="budget" min="1" max="100000000" step="any" value="50000" />
         </div>
 
         <div class="row">
@@ -74,6 +130,12 @@
         <h2>Clusters</h2>
         <div id="clusters"></div>
         <button class="primary" id="addCluster">+ Add cluster</button>
+        <div class="clusterFileRow">
+          <button type="button" class="ghost" id="saveClusters" title="Download cluster setup as JSON">Save to file</button>
+          <label class="filePick" title="Replace clusters from a saved JSON file">Load from file
+            <input type="file" id="loadClusters" accept="application/json,.json" hidden />
+          </label>
+        </div>
 
         <h2>Probe</h2>
         <div class="row">
@@ -87,7 +149,6 @@
 
       <main class="main">
         <div class="metrics">
-          <div class="metric"><div class="k">Budget · auction</div><div class="v" id="mBudget">—</div></div>
           <div class="metric"><div class="k">Total bids</div><div class="v" id="mTotal">—</div></div>
           <div class="metric"><div class="k">Best (x,y,z)</div><div class="v" id="mBest">—</div></div>
           <div class="metric"><div class="k">Best profit</div><div class="v" id="mProfit">—</div></div>
@@ -109,15 +170,14 @@
       const $ = (id) => document.getElementById(id);
       const state = {
         clusters: [
-          { id: 1, center: 99, size: 80, width: 1 },
-          { id: 2, center: 97, size: 110, width: 2 },
-          { id: 3, center: 0, size: 10, width: 0 },
+          { id: 1, center: 99, size: 80, width: 1, weight_mode: "linear", spread: "F" },
+          { id: 2, center: 97, size: 110, width: 2, weight_mode: "linear", spread: "F" },
+          { id: 3, center: 0, size: 10, width: 0, weight_mode: "linear", spread: "F" },
         ],
         nextId: 4,
         baseFloor: 0,
         probeZ: 36,
         budget: 50000,
-        participate: true,
       };
 
       const initialised = { bids: false, speed: false, above: false, heat: false, surface: false };
@@ -125,21 +185,36 @@
       let inFlight = false;
       let pendingDirty = false;
 
+      const SPREAD_ORDER = ["L", "R", "F"];
+
+      function normalizeSpread(s) {
+        return s === "L" || s === "R" ? s : "F";
+      }
+
       function renderClusters() {
         const host = $("clusters");
         host.innerHTML = "";
         state.clusters.forEach((c, idx) => {
+          const wm = c.weight_mode === "exponential" ? "exponential" : "linear";
+          const sp = normalizeSpread(c.spread);
           const div = document.createElement("div");
           div.className = "cluster";
           div.innerHTML = `
             <div class="head">
               <span>Cluster #${idx + 1}</span>
-              <button class="del" title="Remove" data-remove="${c.id}">✕</button>
+              <div class="head-actions">
+                <button type="button" class="spreadCycle" data-spread-cycle="${c.id}" title="Spread: L = left of center only, R = right only, F = both — click to cycle">${sp}</button>
+                <select class="clusterMode" data-id="${c.id}" data-field="weight_mode" title="Bid spread across width" aria-label="Falloff mode">
+                  <option value="linear" ${wm === "linear" ? "selected" : ""}>linear</option>
+                  <option value="exponential" ${wm === "exponential" ? "selected" : ""}>exponential</option>
+                </select>
+                <button class="del" title="Remove" data-remove="${c.id}">✕</button>
+              </div>
             </div>
             <div class="row">
               <label>Center</label>
               <input type="range" min="0" max="100" value="${c.center}" data-id="${c.id}" data-field="center" />
-              <span class="val" data-val="center-${c.id}">${c.center}</span>
+              <input type="number" class="numTiny" min="0" max="100" value="${c.center}" data-id="${c.id}" data-field="center" />
             </div>
             <div class="row">
               <label>Size</label>
@@ -159,12 +234,44 @@
           el.addEventListener("input", (e) => {
             const id = Number(e.target.dataset.id);
             const field = e.target.dataset.field;
-            const v = Number(e.target.value);
+            const raw = e.target.value;
+            if (raw === "") return;
+            let v = Number(raw);
+            if (!Number.isFinite(v)) return;
+            const min = e.target.min !== "" ? Number(e.target.min) : -Infinity;
+            const max = e.target.max !== "" ? Number(e.target.max) : Infinity;
+            v = Math.max(min, Math.min(max, v));
             const c = state.clusters.find((x) => x.id === id);
             if (!c) return;
             c[field] = v;
+            host
+              .querySelectorAll(`input[data-id="${id}"][data-field="${field}"]`)
+              .forEach((sib) => { if (sib !== e.target) sib.value = String(v); });
             const valEl = host.querySelector(`[data-val="${field}-${id}"]`);
             if (valEl) valEl.textContent = v;
+            scheduleRefresh();
+          });
+        });
+        host.querySelectorAll("select[data-id][data-field]").forEach((el) => {
+          el.addEventListener("change", (e) => {
+            const id = Number(e.target.dataset.id);
+            const field = e.target.dataset.field;
+            const v = e.target.value;
+            const c = state.clusters.find((x) => x.id === id);
+            if (!c) return;
+            c[field] = v;
+            scheduleRefresh();
+          });
+        });
+        host.querySelectorAll("[data-spread-cycle]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            const id = Number(e.currentTarget.dataset.spreadCycle);
+            const c = state.clusters.find((x) => x.id === id);
+            if (!c) return;
+            const cur = normalizeSpread(c.spread);
+            const i = SPREAD_ORDER.indexOf(cur);
+            c.spread = SPREAD_ORDER[(i + 1) % SPREAD_ORDER.length];
+            renderClusters();
             scheduleRefresh();
           });
         });
@@ -196,7 +303,6 @@
               base_floor: state.baseFloor,
               probe_z: state.probeZ,
               budget: state.budget,
-              participate_in_auction: state.participate,
             }),
           });
           if (!res.ok) throw new Error(await res.text());
@@ -212,13 +318,7 @@
         }
       }
 
-      function renderBudgetMetric() {
-        $("mBudget").textContent =
-          `${state.budget.toLocaleString()} · ${state.participate ? "in" : "out"}`;
-      }
-
       function updateMetrics(d) {
-        renderBudgetMetric();
         $("mTotal").textContent = d.total_bids;
         $("mBest").textContent = `(${d.best.x}, ${d.best.y}, ${d.best.z})`;
         $("mProfit").textContent = d.best.profit.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -331,17 +431,10 @@
       }
 
       $("budget").addEventListener("input", (e) => {
+        if (e.target.value === "") return;
         const v = Number(e.target.value);
         if (!Number.isFinite(v) || v < 1) return;
         state.budget = v;
-        $("budgetVal").textContent = v.toLocaleString();
-        renderBudgetMetric();
-        scheduleRefresh();
-      });
-      $("participate").addEventListener("change", (e) => {
-        state.participate = e.target.checked;
-        $("participateVal").textContent = state.participate ? "on" : "off";
-        renderBudgetMetric();
         scheduleRefresh();
       });
       $("baseFloor").addEventListener("input", (e) => {
@@ -355,13 +448,81 @@
         scheduleRefresh();
       });
       $("addCluster").addEventListener("click", () => {
-        state.clusters.push({ id: state.nextId++, center: 50, size: 40, width: 0 });
+        state.clusters.push({
+          id: state.nextId++,
+          center: 50,
+          size: 40,
+          width: 0,
+          weight_mode: "linear",
+          spread: "F",
+        });
         renderClusters();
         scheduleRefresh();
       });
 
+      function clusterPayloadForSave() {
+        return {
+          version: 1,
+          clusters: state.clusters.map(({ id, center, size, width, weight_mode, spread }) => ({
+            id,
+            center,
+            size,
+            width,
+            weight_mode,
+            spread: normalizeSpread(spread),
+          })),
+        };
+      }
+
+      function applyLoadedClusters(arr) {
+        if (!Array.isArray(arr) || arr.length === 0) throw new Error("No clusters in file");
+        state.clusters = arr.map((raw, i) => {
+          const center = Math.max(0, Math.min(100, Number(raw.center) || 0));
+          const size = Math.max(0, Number(raw.size) || 0);
+          const width = Math.max(0, Math.min(100, Number(raw.width) || 0));
+          const weight_mode = raw.weight_mode === "exponential" ? "exponential" : "linear";
+          const spread = normalizeSpread(raw.spread);
+          return { id: i + 1, center, size, width, weight_mode, spread };
+        });
+        state.nextId = state.clusters.length + 1;
+      }
+
+      $("saveClusters").addEventListener("click", () => {
+        const payload = clusterPayloadForSave();
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, "0");
+        const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+        a.download = `allocation-clusters-${stamp}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        $("status").textContent = "Saved cluster file.";
+      });
+
+      $("loadClusters").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(String(reader.result));
+            const arr = Array.isArray(data) ? data : data.clusters;
+            applyLoadedClusters(arr);
+            renderClusters();
+            scheduleRefresh();
+            $("status").textContent = `Loaded ${state.clusters.length} clusters`;
+          } catch (err) {
+            $("status").textContent = "Load error: " + err.message;
+          }
+        };
+        reader.readAsText(file);
+      });
+
       renderClusters();
-      renderBudgetMetric();
       refresh();
     </script>
   </body>
