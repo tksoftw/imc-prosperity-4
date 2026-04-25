@@ -7,14 +7,27 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Iterable
 
 
-DEFAULT_ROUND = 1
+# DEFAULT_ROUND = 1
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = ROOT / "runs"
 BACKTESTER = Path.home() / ".cargo" / "bin" / "rust_backtester"
+
+# find the default round by looking for the highest existing ROUND_{N} directory.
+# if none exist, error out and ask the user to specify a round.
+DEFAULT_ROUND = None
+for path in ROOT.glob("ROUND_*"):
+    if path.is_dir():
+        match = re.match(r"ROUND_(\d+)", path.name)
+        if match:
+            round_num = int(match.group(1))
+            if DEFAULT_ROUND is None or round_num > DEFAULT_ROUND:
+                DEFAULT_ROUND = round_num
+
 
 
 @dataclass
@@ -298,13 +311,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "using the rust backtester, then print a ranked PnL table."
         ),
     )
+
     parser.add_argument(
         "-r",
         "--round",
         type=int,
-        default=DEFAULT_ROUND,
+        required=DEFAULT_ROUND is None,
         metavar="N",
         help="round number (default: %(default)s); selects ROUND_<N>/ and data/ROUND_<N>/",
+        default=DEFAULT_ROUND,
     )
     parser.add_argument(
         "--days",
@@ -325,8 +340,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="after the main table, print one identical table per product",
     )
-    return parser.parse_args(argv)
 
+    return parser.parse_args(argv)
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
