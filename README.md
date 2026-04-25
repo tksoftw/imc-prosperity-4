@@ -135,6 +135,15 @@ The competition only allows the following libraries inside trader files
 
 </details>
 
+<details>
+<summary>Round 3</summary>
+
+### [round 3 playground](tools/round_3_playground.py)
+`python3 tools/round_3_playground.py`
+> headless mode: `python3 tools/round_3_playground.py --no-gui --b1 755 --b2 840 --avg-b2 840`
+
+</details>
+
 ## Optional additions
 
 ### Create a venv alias
