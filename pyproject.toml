@@ -37,3 +37,8 @@ dev = [
 
 [tool.setuptools]
 py-modules = ["datamodel"]
+packages = ["tools"]
+
+[project.scripts]
+rank = "tools.rank_traders:main"
+gendata = "tools.round_data_lab.server:main"

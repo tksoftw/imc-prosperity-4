@@ -120,3 +120,7 @@ def api_healthz() -> dict[str, str]:
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+def main() -> None:
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8002, log_level="info")

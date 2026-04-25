@@ -110,12 +110,12 @@ The competition only allows the following libraries inside trader files
 
 ### [rank traders](tools/rank_traders.py)
 
-`python3 tools/rank_traders.py --round <N>`
+`uv run rank`
 > also: show individual products with `--show-per-product`
 
 
 ### [round data lab](tools/round_data_lab/README.md)
-`uvicorn tools.round_data_lab.server:app --reload --port 8002`
+`uv run gendata`
 
 ### By round
 
@@ -132,6 +132,15 @@ The competition only allows the following libraries inside trader files
 
 ### [allocation optimizer](tools/allocation_webviz/)
 `uvicorn tools.allocation_webviz.server:app --reload --port 8001`
+
+</details>
+
+<details>
+<summary>Round 3</summary>
+
+### [round 3 playground](tools/round_3_playground.py)
+`python3 tools/round_3_playground.py`
+> headless mode: `python3 tools/round_3_playground.py --no-gui --b1 755 --b2 840 --avg-b2 840`
 
 </details>
 
