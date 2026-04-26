@@ -112,6 +112,7 @@ The competition only allows the following libraries inside trader files
 
 `uv run rank`
 > also: show individual products with `--show-per-product`
+
 > also: clean with `--clean [stale (default), all, or <pattern>] `
 
 
