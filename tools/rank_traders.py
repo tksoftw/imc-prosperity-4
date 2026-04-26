@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,7 +70,9 @@ def discover_days(data_dir: Path, round_num: int) -> list[int]:
     return sorted(days)
 
 
-def _multi_day_run_dirs(run_id: str, round_num: int, days: Iterable[int]) -> dict[int, Path]:
+def _multi_day_run_dirs(
+    run_id: str, round_num: int, days: Iterable[int], output_dir: Path
+) -> dict[int, Path]:
     """The rust backtester writes per-day subdirs as
     `{run_id}-round-{N}-day{day}` where day uses an explicit sign
     (e.g. `day-0`, `day+1`). Map each requested day to its subdir.
@@ -77,7 +80,7 @@ def _multi_day_run_dirs(run_id: str, round_num: int, days: Iterable[int]) -> dic
     out = {}
     for day in days:
         sign = "-" if day == 0 else "+" if day > 0 else "-"
-        out[day] = RUNS_DIR / f"{run_id}-round-{round_num}-day{sign}{abs(day)}"
+        out[day] = output_dir / f"{run_id}-round-{round_num}-day{sign}{abs(day)}"
     return out
 
 
@@ -86,6 +89,7 @@ def run_backtest(
     round_num: int,
     data_dir: Path,
     day: int | None = None,
+    output_dir: Path | None = None,
 ) -> dict[int, tuple[dict, Path]]:
     """Run the backtester once and return {day: (metrics, submission_log_path)}.
 
@@ -94,17 +98,23 @@ def run_backtest(
       read metrics from each per-day subdir.
     - If `day` is an int: pass the specific day's CSV and `--day={day}`;
       a single per-day metrics file is produced.
+    - If `output_dir` is provided, all per-day subdirs are placed under
+      it (used by `--agent N` to isolate caches). Defaults to RUNS_DIR.
     """
+    if output_dir is None:
+        output_dir = RUNS_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     if day is None:
         run_id = f"rank_round{round_num}_{trader_path.stem}"
         dataset = data_dir
         days = discover_days(data_dir, round_num)
-        per_day_dirs = _multi_day_run_dirs(run_id, round_num, days)
+        per_day_dirs = _multi_day_run_dirs(run_id, round_num, days, output_dir)
     else:
         run_id = f"rank_round{round_num}_{trader_path.stem}_d{day}"
         dataset = data_dir / f"prices_round_{round_num}_day_{day}.csv"
         days = [day]
-        per_day_dirs = {day: RUNS_DIR / run_id}
+        per_day_dirs = {day: output_dir / run_id}
 
     def renamed_log(run_dir: Path, d: int) -> Path:
         return run_dir / f"{trader_path.stem}_submission_d{d}.log"
@@ -132,7 +142,7 @@ def run_backtest(
         "--run-id",
         run_id,
         "--output-root",
-        str(RUNS_DIR.relative_to(ROOT)),
+        str(output_dir.relative_to(ROOT)),
         "--artifact-mode",
         "submission",
         "--products",
@@ -208,8 +218,9 @@ def evaluate_trader(
     round_num: int,
     data_dir: Path,
     day: int | None = None,
+    output_dir: Path | None = None,
 ) -> TraderResult:
-    day_results = run_backtest(trader_path, round_num, data_dir, day)
+    day_results = run_backtest(trader_path, round_num, data_dir, day, output_dir)
 
     totals_by_day: dict[int, float] = {}
     per_product_by_day: dict[int, dict[str, float]] = {}
@@ -389,16 +400,82 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--agent",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "isolate this run inside runs/agentN/. On first use the script "
+            "seeds the agent dir by copying any top-level run dirs from "
+            "runs/ (excluding sibling agent*/ folders); subsequent runs "
+            "treat the agent dir as the cache root. Use to keep parallel "
+            "experiments from clobbering each other's cached metrics."
+        ),
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help=(
+            "[TEMPORARILY DISABLED] aggregate ranks across every "
+            "runs/agent*/ folder. Race condition: while one agent is "
+            "writing per-day metrics, another `--all` reader could see "
+            "partial JSON and crash. Will be re-enabled with file-locking."
+        ),
+    )
+    parser.add_argument(
         "--clean",
         nargs="?",          # optional value
         type=int,
         const=-1,           # passed with no value → -1 (means "all")
         default=None,       # not provided → None
         metavar="N",
-        help="delete latest N runs (default: all)",
+        help=(
+            "with arg N: delete the runs/agentN/ folder (must use --agent "
+            "is unnecessary — N selects the agent dir directly). The "
+            "no-arg form (delete all of runs/) is TEMPORARILY DISABLED — "
+            "wiping runs/* while sibling --agent processes are mid-flight "
+            "would nuke their in-progress metrics. Will be re-enabled "
+            "with a runs/.lock guard."
+        ),
     )
 
     return parser.parse_args(argv)
+
+_AGENT_DIR_RE = re.compile(r"^agent\d+$")
+
+
+def _agent_dir(agent: int) -> Path:
+    return RUNS_DIR / f"agent{agent}"
+
+
+def _seed_agent_dir(agent_dir: Path) -> None:
+    """Copy every top-level run dir from RUNS_DIR/ into agent_dir/, but
+    NOT the sibling agent*/ folders. Existing entries in agent_dir are
+    left intact (don't overwrite freshly produced metrics).
+
+    Race-condition note: if a parallel `--agent N` invocation is mid-
+    seed, the second seeder may copy a partially-written run dir. The
+    rust backtester writes metrics.json atomically at the end of a
+    day, but the renamed_log step is racy. We mitigate by skipping any
+    target that already exists; full safety needs a `runs/.lock` file
+    + flock(), which is the same lock that `--all` and `--clean` (no-
+    arg form) need before they can be re-enabled.
+    """
+    if not RUNS_DIR.is_dir():
+        return
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    for src in RUNS_DIR.iterdir():
+        if not src.is_dir():
+            continue
+        if _AGENT_DIR_RE.match(src.name):
+            continue  # don't pull from sibling agent dirs
+        if src.resolve() == agent_dir.resolve():
+            continue
+        dst = agent_dir / src.name
+        if dst.exists():
+            continue
+        shutil.copytree(src, dst)
+
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
@@ -416,23 +493,47 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Data directory not found: {data_dir}")
         return 1
 
-    # clear
-    if args.clean is not None:
-        run_dirs = sorted(
-            [p for p in RUNS_DIR.iterdir() if p.is_dir()],
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,  # newest first
+    # ── --all (temporarily disabled) ─────────────────────────────────
+    # Race: while a sibling `--agent N` is mid-write of metrics.json /
+    # submission logs, an `--all` aggregator that walks every agent dir
+    # could see partial files and crash on JSONDecodeError. Re-enable
+    # once we have a `runs/.lock` flock guard around per-day writes.
+    if args.all:
+        print(
+            "--all is temporarily disabled (race vs concurrent --agent N writes). "
+            "Re-enable once runs/.lock flock is in place."
         )
+        return 1
 
+    # ── --clean (no-arg form temporarily disabled) ───────────────────
+    # The legacy "delete latest K runs" form scanned RUNS_DIR/* and
+    # rm -rf'd from the top of the mtime list. With agent isolation,
+    # the agent dirs themselves have a fresh mtime every run, which
+    # would now be the FIRST things deleted — silently nuking sibling
+    # caches. Until clean grows agent-awareness, only allow the
+    # explicit `--clean N` form which deletes runs/agentN/ exactly.
+    if args.clean is not None:
         if args.clean == -1:
-            to_delete = run_dirs  # all
+            print(
+                "Bare `--clean` is temporarily disabled. Use `--clean N` "
+                "to delete runs/agentN/, or `rm -rf runs/<dirname>` directly."
+            )
+            return 1
+        target = _agent_dir(args.clean)
+        if target.exists():
+            shutil.rmtree(target)
+            print(f"Deleted {target.relative_to(ROOT)}")
         else:
-            to_delete = run_dirs[:args.clean]
+            print(f"No such agent dir: {target.relative_to(ROOT)}")
+        return 0
 
-        for p in to_delete:
-            subprocess.run(["rm", "-rf", str(p)])
-
-        sys.exit(0)
+    # ── --agent N: isolate cache + bootstrap from runs/ ──────────────
+    if args.agent is not None:
+        output_dir = _agent_dir(args.agent)
+        _seed_agent_dir(output_dir)
+        print(f"Using agent cache dir: {output_dir.relative_to(ROOT)}")
+    else:
+        output_dir = RUNS_DIR
 
     traders = discover_traders(round_dir)
     if args.traders:
@@ -464,7 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     for index, trader_path in enumerate(traders, start=1):
         rel = trader_path.relative_to(round_dir).as_posix()
         print(f"[{index}/{len(traders)}] Evaluating {rel}")
-        results.append(evaluate_trader(trader_path, args.round, data_dir, args.day))
+        results.append(
+            evaluate_trader(trader_path, args.round, data_dir, args.day, output_dir)
+        )
 
     results.sort(
         key=lambda item: (item.total_pnl, item.avg_pnl, item.min_day_pnl),

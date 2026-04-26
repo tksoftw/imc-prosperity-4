@@ -1,0 +1,60 @@
+================================================================================
+HYDRO anchor postmortem — backtest vs real deploy, again
+================================================================================
+
+Cost of changing HYDRO ANCHOR from 9980 -> 9991: $1,434 real day-2.
+
+Evidence (from imc_logs/ROUND_3/*.log, parsed via parse_real_logs.py):
+
+  log              HYDRO   anchor       diff
+  ─────────────  ───────  ───────  ──────────
+  ff_OLD.log      7,868     9980    baseline
+  optimum.log     7,868     9980        0
+  467965.log      6,934     9980     -934
+  CRAZY.log       6,678     9980    -1,190
+  ff.log (BAD)    6,434     9991    -1,434
+  final_3.log     6,434     9991    -1,434
+  EXPERIMENTS     5,062  9991+raw   -2,806
+
+trader_ff and trader_ff_OLD are otherwise IDENTICAL — VELVET/4000/
+4500/5000/5100/5200/5300/5400/5500 PnL all match exactly across the
+two real submissions. The HYDRO line is the only mover.
+
+
+Why my "anti-overfit" change was wrong
+---------------------------------------
+
+In overfit_risk.txt I argued:
+  "9991 is data-derived from data/ROUND_3 historical mean (9990.8),
+   while 9980 came from optimum.log (single observation)."
+
+That was wrong reasoning. Both ARE data-derived:
+  * 9991: mean of historical CSV (data/ROUND_3 days 0-2)
+  * 9980: regime mean during real-submission environment
+
+These are two different DISTRIBUTIONS. The historical CSV mean isn't
+the relevant target — what matters is the bot regime our submission
+ACTUALLY trades against. Multiple real submissions agree HYDRO is
+quoted around 9979-9980 by the live MM bots.
+
+The lesson:
+  * "Data-derived" doesn't auto-mean "right" — depends WHICH data.
+  * When backtest and real diverge, real wins (it's what we're scored on).
+  * Real-log evidence > backtest grid search evidence whenever both
+    exist for the same parameter.
+
+
+Reverted to 9980
+-----------------
+
+Backtest dropped $97,114 -> $91,684 on HYDRO (-$5,430), 3-day total
+$335,279 -> $329,849. Trade $5K of backtest for $1.4K of expected
+real PnL gain — unfavorable on paper, but:
+
+  * Real PnL is what gets scored.
+  * 5 of the 7 ancestor traders that scored on real used 9980 family.
+  * The 9991 backtest peak is partly an artefact of HYDRO's specific
+    bot-flow asymmetry in days 0-2 of the CSV.
+
+Net: trader_ff is now back to backtest $329,849 / real day-2 ~$18K
+(matches ff_OLD.log).
