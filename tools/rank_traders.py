@@ -389,9 +389,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--clear",
-        action="store_true",
-        help="clear all cached backtest results for this round (files in runs/)",
+        "--clean",
+        nargs="?",          # optional value
+        type=int,
+        const=-1,           # passed with no value → -1 (means "all")
+        default=None,       # not provided → None
+        metavar="N",
+        help="delete latest N runs (default: all)",
     )
 
     return parser.parse_args(argv)
@@ -413,10 +417,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # clear
-    if args.clear:
-        os.system(f"rm -rf {RUNS_DIR}/*{args.round}*")
-        sys.exit(0)
+    if args.clean is not None:
+        run_dirs = sorted(
+            [p for p in RUNS_DIR.iterdir() if p.is_dir()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,  # newest first
+        )
 
+        if args.clean == -1:
+            to_delete = run_dirs  # all
+        else:
+            to_delete = run_dirs[:args.clean]
+
+        for p in to_delete:
+            subprocess.run(["rm", "-rf", str(p)])
+
+        sys.exit(0)
 
     traders = discover_traders(round_dir)
     if args.traders:

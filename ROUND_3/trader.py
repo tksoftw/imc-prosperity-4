@@ -111,11 +111,14 @@ class Trader:
             remaining_buy = max(0, MAX_POS_VELVET - current_pos)
             remaining_sell = max(0, MAX_POS_VELVET + current_pos)
 
-            # Only trade VELVETFRUIT_EXTRACT exactly on edges of the spread
-            if deviation > 0.5 and remaining_sell > 0:
-                result[velvet].append(Order(velvet, int(velvet_analysis.ask_wall), -remaining_sell))
-            elif deviation < -0.5 and remaining_buy > 0:
-                result[velvet].append(Order(velvet, int(velvet_analysis.bid_wall), remaining_buy))
+            # Market making around the EMA with a 5.0 median spread
+            target_bid = math.floor(fast_ema - 2.0)
+            target_ask = math.ceil(fast_ema + 2.0)
+
+            if remaining_buy > 0:
+                result[velvet].append(Order(velvet, int(target_bid), remaining_buy))
+            if remaining_sell > 0:
+                result[velvet].append(Order(velvet, int(target_ask), -remaining_sell))
         
         # 2. HYDROGEL_PACK Static Valuation Strategy
         if hydro_analysis.order_depth:
@@ -124,15 +127,16 @@ class Trader:
             remaining_buy = max(0, MAX_POS_HYDROGEL - current_pos)
             remaining_sell = max(0, MAX_POS_HYDROGEL + current_pos)
 
+            # 16.0 median spread -> true edge is around +/- 8
             for price, volume in sorted(hydro_analysis.order_depth.sell_orders.items()):
-                if price < hydro_true_value - 3 and remaining_buy > 0:
+                if price <= hydro_true_value - 7.0 and remaining_buy > 0:
                     buy_vol = min(max(0, -volume), remaining_buy)
                     if buy_vol > 0:
                         result[hydrogel].append(Order(hydrogel, price, buy_vol))
                         remaining_buy -= buy_vol
             
             for price, volume in sorted(hydro_analysis.order_depth.buy_orders.items(), reverse=True):
-                if price > hydro_true_value + 3 and remaining_sell > 0:
+                if price >= hydro_true_value + 7.0 and remaining_sell > 0:
                     sell_vol = min(volume, remaining_sell)
                     if sell_vol > 0:
                         result[hydrogel].append(Order(hydrogel, price, -sell_vol))
@@ -164,24 +168,32 @@ class Trader:
                                 result[vev_prod].append(Order(vev_prod, price, buy_vol))
                                 remaining_buy -= buy_vol
                 
-                if vev_analysis.wall_mid is not None and vev_analysis.bid_wall is not None and vev_analysis.ask_wall is not None:
-                    # Delta neutral intrinsic edge mean reversion 
-                    # Deep ITM behaves entirely like the underlying. Wait for the market maker
-                    # to offer stupid spreads.
-                    extrinsic = vev_analysis.wall_mid - intrinsic_value
-                    mean_extrinsic = get_ema(f"{vev_prod}_extrinsic", extrinsic, 50)
+                # Black-Scholes Pricing and Market Making
+                median_spreads = {
+                    4000: 21.0, 4500: 16.0, 5000: 6.0, 5100: 4.0, 5200: 3.0,
+                    5300: 2.0, 5400: 1.0, 5500: 1.0, 6000: 1.0, 6500: 1.0
+                }
+                vev_spread = median_spreads.get(k, 2.0)
+                
+                if vev_analysis.wall_mid is not None:
+                    # Calculate implied vol from current market price
+                    TTE = 1.0  # Approx 1 year logic assumed to stabilize the model
+                    current_iv = implied_volatility(velvet_analysis.wall_mid, k, TTE, vev_analysis.wall_mid)
                     
-                    diff = extrinsic - mean_extrinsic
+                    # Smooth the IV to avoid reacting to noise
+                    smoothed_iv = get_ema(f"iv_{vev_prod}", current_iv, 50)
                     
-                    if diff >= 0.75 and remaining_sell > 0:
-                        # Price is higher than mean extrinsic + intrinsic
-                        volume = min(15, remaining_sell)
-                        if vev_analysis.bid_wall > intrinsic_value:
-                            result[vev_prod].append(Order(vev_prod, int(vev_analysis.bid_wall), -volume))
-                            
-                    elif diff <= -0.75 and remaining_buy > 0:
-                        volume = min(15, remaining_buy)
-                        result[vev_prod].append(Order(vev_prod, int(vev_analysis.ask_wall), volume))
+                    # Calculate fair price with smoothed IV
+                    fair_price = bs_call(velvet_analysis.wall_mid, k, TTE, smoothed_iv)
+                    
+                    target_bid = math.floor(fair_price - (vev_spread / 2.0) + 0.1)
+                    target_ask = math.ceil(fair_price + (vev_spread / 2.0) - 0.1)
+                    
+                    # Only quote if we aren't crossing the spread unless strongly mispriced
+                    if remaining_buy > 0:
+                        result[vev_prod].append(Order(vev_prod, int(target_bid), remaining_buy))
+                    if remaining_sell > 0:
+                        result[vev_prod].append(Order(vev_prod, int(target_ask), -remaining_sell))
 
         # Clean up orders dict
         result = {p: orders for p, orders in result.items() if orders}
