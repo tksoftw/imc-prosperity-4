@@ -36,17 +36,20 @@ UNDERLYING = "VELVETFRUIT_EXTRACT"
 
 # Empirical extrinsic value (time value) by strike.
 # Source: notebooks/round3/conclusions.ipynb, mid-round average across days 0-2.
-# Deep-ITM extrinsic ~0; ATM extrinsic peaks at K=5200/5300 (~45 ticks).
+# We deliberately only trade strikes where a static fair value works:
+#   - Deep-ITM (4000, 4500): extrinsic ~0, fair = pure intrinsic.
+#   - VEV_5300 (closest OTM): low delta -> fair stable as VELVET moves.
+# ITM-ATM strikes 5000/5100/5200 were tried in v1 and bled hard from
+# gamma risk: their delta is high, so static fair gets picked off as
+# VELVET drifts. They need either (a) delta-hedging in VELVET or (b)
+# an intraday extrinsic decay model. Out of scope for this v2 cut.
 VEV_EXTRINSIC = {
     4000: 0.0,
     4500: 0.0,
-    5000: 4.5,
-    5100: 16.0,
-    5200: 45.0,
     5300: 47.0,
 }
 
-ATM_STRIKES = (5000, 5100, 5200, 5300)
+ATM_STRIKES = (5300,)
 ITM_STRIKES = (4000, 4500)
 
 # Position limits per option (conservative initial value; revisit per

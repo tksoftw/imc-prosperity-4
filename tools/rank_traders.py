@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -68,20 +69,59 @@ def discover_days(data_dir: Path, round_num: int) -> list[int]:
     return sorted(days)
 
 
+def _multi_day_run_dirs(run_id: str, round_num: int, days: Iterable[int]) -> dict[int, Path]:
+    """The rust backtester writes per-day subdirs as
+    `{run_id}-round-{N}-day{day}` where day uses an explicit sign
+    (e.g. `day-0`, `day+1`). Map each requested day to its subdir.
+    """
+    out = {}
+    for day in days:
+        sign = "-" if day == 0 else "+" if day > 0 else "-"
+        out[day] = RUNS_DIR / f"{run_id}-round-{round_num}-day{sign}{abs(day)}"
+    return out
+
+
 def run_backtest(
     trader_path: Path,
-    day: int,
     round_num: int,
     data_dir: Path,
-) -> tuple[dict, Path]:
-    dataset = data_dir / f"prices_round_{round_num}_day_{day}.csv"
-    run_id = f"rank_round{round_num}_{trader_path.stem}_d{day}"
-    run_dir = RUNS_DIR / run_id
-    metrics_path = run_dir / "metrics.json"
-    submission_log_path = run_dir / f"submission_{trader_path.stem}_d{day}.log"
+    day: int | None = None,
+) -> dict[int, tuple[dict, Path]]:
+    """Run the backtester once and return {day: (metrics, submission_log_path)}.
 
-    if metrics_path.exists() and submission_log_path.exists():
-        return json.loads(metrics_path.read_text()), submission_log_path
+    - If `day` is None: pass the round directory as the dataset; the
+      backtester auto-discovers and runs every day in one call. We then
+      read metrics from each per-day subdir.
+    - If `day` is an int: pass the specific day's CSV and `--day={day}`;
+      a single per-day metrics file is produced.
+    """
+    if day is None:
+        run_id = f"rank_round{round_num}_{trader_path.stem}"
+        dataset = data_dir
+        days = discover_days(data_dir, round_num)
+        per_day_dirs = _multi_day_run_dirs(run_id, round_num, days)
+    else:
+        run_id = f"rank_round{round_num}_{trader_path.stem}_d{day}"
+        dataset = data_dir / f"prices_round_{round_num}_day_{day}.csv"
+        days = [day]
+        per_day_dirs = {day: RUNS_DIR / run_id}
+
+    def renamed_log(run_dir: Path, d: int) -> Path:
+        return run_dir / f"{trader_path.stem}_submission_d{d}.log"
+
+    # Cache hit: every expected per-day dir already has metrics + the renamed
+    # submission log.
+    if all(
+        (run_dir / "metrics.json").exists() and renamed_log(run_dir, d).exists()
+        for d, run_dir in per_day_dirs.items()
+    ):
+        return {
+            d: (
+                json.loads((per_day_dirs[d] / "metrics.json").read_text()),
+                renamed_log(per_day_dirs[d], d),
+            )
+            for d in days
+        }
 
     cmd = [
         str(BACKTESTER),
@@ -89,16 +129,18 @@ def run_backtest(
         str(trader_path.relative_to(ROOT)),
         "--dataset",
         str(dataset.relative_to(ROOT)),
-        f"--day={day}",
         "--run-id",
         run_id,
         "--output-root",
         str(RUNS_DIR.relative_to(ROOT)),
         "--artifact-mode",
-        "full",
+        "submission",
         "--products",
         "full",
     ]
+    if day is not None:
+        cmd.append(f"--day={day}")
+
     completed = subprocess.run(
         cmd,
         cwd=ROOT,
@@ -108,20 +150,24 @@ def run_backtest(
     )
     if completed.returncode != 0:
         raise RuntimeError(
-            f"Backtest failed for {trader_path} day {day}\n"
+            f"Backtest failed for {trader_path} (day={day})\n"
             f"stdout:\n{completed.stdout}\n"
             f"stderr:\n{completed.stderr}"
         )
-    if not metrics_path.exists():
-        raise FileNotFoundError(f"Expected metrics file not found: {metrics_path}")
-    try:
-        p = run_dir / "submission.log"
-        submission_log_path = p.rename(p.with_name(p.stem + '_' + trader_path.stem + f'_d{day}.log'))
-    except Exception as e:
-        raise FileNotFoundError(
-            f"Error while renaming: original expected submission.log not found: {e}"
-        )
-    return json.loads(metrics_path.read_text()), submission_log_path
+
+    results: dict[int, tuple[dict, Path]] = {}
+    for d, run_dir in per_day_dirs.items():
+        metrics_file = run_dir / "metrics.json"
+        raw_log = run_dir / "submission.log"
+        target_log = renamed_log(run_dir, d)
+        if not metrics_file.exists():
+            raise FileNotFoundError(f"Expected metrics file not found: {metrics_file}")
+        if raw_log.exists():
+            raw_log.rename(target_log)
+        elif not target_log.exists():
+            raise FileNotFoundError(f"Expected submission log not found: {raw_log}")
+        results[d] = (json.loads(metrics_file.read_text()), target_log)
+    return results
 
 
 @dataclass
@@ -159,30 +205,31 @@ def count_trades(submission_log_path: Path) -> TradeCounts:
 
 def evaluate_trader(
     trader_path: Path,
-    days: Iterable[int],
     round_num: int,
     data_dir: Path,
+    day: int | None = None,
 ) -> TraderResult:
+    day_results = run_backtest(trader_path, round_num, data_dir, day)
+
     totals_by_day: dict[int, float] = {}
     per_product_by_day: dict[int, dict[str, float]] = {}
     trade_count_by_day: dict[int, int] = {}
     trade_count_by_day_per_product: dict[int, dict[str, int]] = {}
     bot_trade_count_by_day: dict[int, int] = {}
     bot_trade_count_by_day_per_product: dict[int, dict[str, int]] = {}
-    for day in days:
-        metrics, submission_log_path = run_backtest(
-            trader_path, day, round_num, data_dir
-        )
-        totals_by_day[day] = float(metrics["final_pnl_total"])
-        per_product_by_day[day] = {
+
+    for d, (metrics, submission_log_path) in day_results.items():
+        totals_by_day[d] = float(metrics["final_pnl_total"])
+        per_product_by_day[d] = {
             product: float(value)
             for product, value in metrics["final_pnl_by_product"].items()
         }
         counts = count_trades(submission_log_path)
-        trade_count_by_day[day] = counts.own_total
-        trade_count_by_day_per_product[day] = counts.own_by_product
-        bot_trade_count_by_day[day] = counts.bot_total
-        bot_trade_count_by_day_per_product[day] = counts.bot_by_product
+        trade_count_by_day[d] = counts.own_total
+        trade_count_by_day_per_product[d] = counts.own_by_product
+        bot_trade_count_by_day[d] = counts.bot_total
+        bot_trade_count_by_day_per_product[d] = counts.bot_by_product
+
     return TraderResult(
         trader_path=trader_path,
         totals_by_day=totals_by_day,
@@ -322,11 +369,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_ROUND,
     )
     parser.add_argument(
-        "--days",
+        "--day",
         type=int,
-        nargs="+",
+        default=None,
         metavar="DAY",
-        help="restrict to these days (default: every day auto-discovered)",
+        help="restrict to a single day (default: backtester auto-runs every day in the round dir)",
     )
     parser.add_argument(
         "--trader",
@@ -339,6 +386,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--show-per-product",
         action="store_true",
         help="after the main table, print one identical table per product",
+    )
+
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="clear all cached backtest results for this round (files in runs/)",
     )
 
     return parser.parse_args(argv)
@@ -359,18 +412,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Data directory not found: {data_dir}")
         return 1
 
+    # clear
+    if args.clear:
+        os.system(f"rm -rf {RUNS_DIR}/*{args.round}*")
+        sys.exit(0)
+
+
     traders = discover_traders(round_dir)
     if args.traders:
         needles = [needle.lower() for needle in args.traders]
         traders = [t for t in traders if any(n in t.name.lower() for n in needles)]
 
     available_days = discover_days(data_dir, args.round)
-    if args.days:
-        missing = sorted(set(args.days) - set(available_days))
-        if missing:
-            print(f"Requested day(s) not found in {data_dir}: {missing}")
+    if args.day is not None:
+        if args.day not in available_days:
+            print(f"Requested day not found in {data_dir}: {args.day}")
             return 1
-        days = sorted(args.days)
+        days = [args.day]
     else:
         days = available_days
 
@@ -390,7 +448,7 @@ def main(argv: list[str] | None = None) -> int:
     for index, trader_path in enumerate(traders, start=1):
         rel = trader_path.relative_to(round_dir).as_posix()
         print(f"[{index}/{len(traders)}] Evaluating {rel}")
-        results.append(evaluate_trader(trader_path, days, args.round, data_dir))
+        results.append(evaluate_trader(trader_path, args.round, data_dir, args.day))
 
     results.sort(
         key=lambda item: (item.total_pnl, item.avg_pnl, item.min_day_pnl),
