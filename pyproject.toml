@@ -43,3 +43,4 @@ packages = ["tools"]
 [project.scripts]
 rank = "tools.rank_traders:main"
 gendata = "tools.round_data_lab.server:main"
+check-overfit = "tools.check_overfit:main"
