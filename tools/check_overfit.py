@@ -402,7 +402,7 @@ def _wrap(s: str, color: str) -> str:
     return f"{color}{s}{_RESET}"
 
 
-def render_rank(reports: list[OverfitReport]) -> None:
+def render_rank(reports: list[OverfitReport], by_pnl: bool = False) -> None:
     """One-row-per-trader overfit-risk leaderboard, ascending by risk."""
     rows = []
     for r in reports:
@@ -420,7 +420,7 @@ def render_rank(reports: list[OverfitReport]) -> None:
             "magic": r.static["magic_numbers"],
             "log_refs": r.static["submission_log_keywords"],
         })
-    rows.sort(key=lambda r: r["score"])
+    rows.sort(key=lambda r: r["score"] if not by_pnl else -r["val"])
 
     headers = ("rank", "trader", "score", "verdict", "gap%", "train$", "val$",
                "day_cv", "prod_cv", "win%", "sharpe", "magic", "logs")
@@ -545,13 +545,15 @@ def main() -> int:
     p.add_argument("--trader-filter", action="append", default=[],
                    help="When using --all, only include trader filenames containing this substring "
                         "(repeatable).")
+    p.add_argument("--by-pnl", action="store_true",
+                   help="Sort by PnL instead of risk score.")
     args = p.parse_args()
 
     if args.all:
         reports = evaluate_all(args.round, args.validation_day, args.trader_filter or None)
         if not reports:
             sys.exit("No traders evaluated.")
-        render_rank(reports)
+        render_rank(reports, by_pnl=args.by_pnl)
         return 0
 
     if args.trader is None:
