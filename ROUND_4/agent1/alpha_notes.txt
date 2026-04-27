@@ -1,0 +1,132 @@
+Round 4 Agent1 alpha notes
+===========================
+
+Notebook
+--------
+- Created reproducible research notebook:
+  notebooks/round4/agent1_specific_alpha.ipynb
+
+Own-trades / market-trades handling
+-----------------------------------
+- Local backtester behavior: state.own_trades and state.market_trades are
+  disjoint. Do not assume market_trades contains our fills.
+- Production decision:
+  - HYDROGEL_PACK uses market_trades + own_trades union because our fills expose
+    named counterparties and HYPER-style HYDRO improves materially.
+  - VELVETFRUIT_EXTRACT stays market_trades only because including own fills was
+    already known to add noise.
+
+Accepted alpha
+--------------
+1. HYDRO named-bot union tilt
+   - Pattern: Mark 14 / Mark 38 / Mark 22 HYDRO bot flow is useful when public
+     prints and our own fills are unioned.
+   - Evidence: HYDRO PnL is 144,059.0 with HYPER/HYDRO12 vs 137,648.0 in
+     BOTVELVET. This adds 6,411 total PnL on the same option stack.
+   - Products: HYDROGEL_PACK.
+   - Implementation: accepted in trader_AGENT1_HYDRO12.py and promoted through
+     trader_AGENT1_BEST.py.
+   - Risk: medium. The alpha relies on live own_trade counterparty names matching
+     the website. The diagnostic probe trader exists to test this.
+
+2. Keep BOTVELVET's VELVET public-tape behavior
+   - Pattern: BOTVELVET's VELVET handling beats HYPER's VELVET calibration.
+   - Evidence: VELVET PnL is 96,300.0 in BOTVELVET/HYDRO12 vs 95,173.0 in HYPER.
+   - Products: VELVETFRUIT_EXTRACT.
+   - Implementation: accepted by inheriting BOTVELVET and replacing only HYDRO.
+   - Risk: low-medium. This is still named-bot alpha, but it is stable across all
+     public days and improves day 2 without hurting day 3.
+
+3. Wing bot overlay into VEV_5200
+   - Pattern: wing prints in VEV_5300/5400/5500 from Mark 22 / Mark 01 carry a
+     small directional signal into VEV_5200.
+   - Evidence: agent2 variant A and agent1 HYDRO12_WING5200 both add +165.0 PnL,
+     all from VEV_5200 day 3: 85,168.0 vs 85,003.0 for HYDRO12/HYPER.
+   - Products: VEV_5200, using VEV_5300/5400/5500 bot flow.
+   - Implementation: accepted in trader_AGENT1_HYDRO12_WING5200.py and promoted
+     in trader_AGENT1_BEST.py.
+   - Risk: high-ish for size, because the edge is tiny and sparse. Kept because
+     it improves min day and does not change other products.
+
+Rejected or not promoted
+------------------------
+1. VELVET tight-spread bullish tilt
+   - Pattern: data-only markout is very strong. VELVET spread <= 1 had n=186,
+     +1.874 mid-to-mid at 100ms, 91.4% hit. Spread <= 2 had n=1,218, +1.248 at
+     100ms, 81.5% hit.
+   - Evidence against implementation: crossing/tilting on it hurt VELVET badly.
+     trader_AGENT1_HYDRO12_TIGHT.py ranked 779,461.5; combo ranked 779,626.5.
+   - Products: VELVETFRUIT_EXTRACT.
+   - Decision: rejected for production. Keep as research only.
+   - Risk: spread/exit cost eats the apparent markout; also correlated with the
+     bot alpha already being used.
+
+2. HYDRO Mark 38 / Mark 22 pair boost
+   - Pattern: public pair table showed rare HYDRO Mark 38 vs Mark 22 prints with
+     raw next-tick moves around 3 points.
+   - Evidence: trader_AGENT1_HYDRO12_PAIR.py tied HYDRO12 exactly at 786,244.5;
+     no realized improvement.
+   - Products: HYDROGEL_PACK.
+   - Decision: not promoted.
+   - Risk: too sparse and already mostly absorbed by the union HYDRO signal.
+
+3. Basket cluster to VELVET
+   - Pattern: multi-leg voucher clusters are visible, often Mark 22 selling
+     basket-like tails.
+   - Evidence: symbols>=4 Mark22 clusters had n=291 but VELVET d300 mean only
+     +0.029 and hit_up 45.0%.
+   - Products: VELVET and VEV wings.
+   - Decision: rejected as direct VELVET signal.
+   - Risk: visually tempting but not directionally stable.
+
+Final promoted trader
+---------------------
+- ROUND_4/trader_AGENT1_BEST.py
+- ROUND_4/compiled/trader_AGENT1_BEST_compiled.py
+- Rank:
+  - trader_AGENT1_BEST.py total 786,409.5, avg 262,136.5, min_day 200,272.5
+  - days: d1 341,589.0, d2 244,548.0, d3 200,272.5
+  - beats HYPER 785,117.5 by +1,292.0
+  - beats BOTVELVET 779,833.5 by +6,576.0
+- Per-product gains vs HYPER:
+  - VELVET +1,127.0
+  - VEV_5200 +165.0
+  - others unchanged.
+
+Diagnostic bot-behavior trader
+------------------------------
+- ROUND_4/agent1/trader_AGENT1_BOT_PROBE.py
+- Purpose: website diagnostic, not PnL. Sparse 1-lot rotating crosses reveal
+  named counterparties in own_trades and stores compact bot counters in
+  traderData.
+- Backtest sanity: works in rank; total -4,464.0 with 1,200 trades. Loss is
+  intentional and bounded compared with the first loud probe.
+
+Verification commands run
+-------------------------
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_HYDRO12.py
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_HYDRO14.py
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_HYDRO12_TIGHT.py
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_HYDRO12_WING5200.py
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_HYDRO12_PAIR.py
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_COMBO.py
+- uv run rank --show-per-product --trader agent1/trader_AGENT1_BOT_PROBE.py
+- uv run rank --show-per-product --trader trader_AGENT1_BEST.py
+- uv run compile --trader trader_AGENT1_BEST.py
+- uv run rank --compiled --show-per-product --trader trader_AGENT1_BEST_compiled.py
+- uv run rank --show-per-product
+- uv run check_overfit --all --by-pnl
+
+Overfit check
+-------------
+- trader_AGENT1_BEST.py score 37, verdict MEDIUM.
+- Same risk bucket as HYPER (37) and BOTVELVET (38), with better total and
+  min_day than both.
+
+Other agent note scan
+---------------------
+- Before this file was written, command `find ROUND_4 -path '*/agent*/*.txt'`
+  returned no files.
+- After writing this file, the same command finds only
+  ROUND_4/agent1/alpha_notes.txt.
+- Excluding agent1, no other agent alpha note .txt files were available to read.
