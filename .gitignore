@@ -1,4 +1,5 @@
 runs/
+ROUND_*/compiled
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -101,8 +101,43 @@ class TraderResult:
         return min(self.totals_by_day.values(), default=0.0)
 
 
-def discover_traders(round_dir: Path) -> list[Path]:
-    return sorted(p for p in round_dir.glob("*.py") if p.is_file() and "__pycache__" not in p.parts)
+def discover_traders(scan_dir: Path) -> list[Path]:
+    """Discover traders directly in `scan_dir`. NEVER recurses.
+
+    For ranks, `scan_dir` is either ROUND_N/ (default) or ROUND_N/compiled/
+    (when `--compiled` is passed). Subdirectories of `scan_dir` are
+    invisible to discovery — pass an explicit `--trader subdir/file.py`
+    if you want to evaluate something nested.
+    """
+    return sorted(
+        p for p in scan_dir.glob("*.py")
+        if p.is_file()
+        and p.name != "__init__.py"
+        and not p.name.startswith("_")
+    )
+
+
+def resolve_trader(scan_dir: Path, arg: str) -> Path:
+    """Resolve a `--trader <path>` argument against `scan_dir`.
+
+    The path may be a bare filename (`trader_X.py`) or a relative path
+    (`subdir/trader_X.py`). NO substring matching, NO `.py` autocomplete,
+    NO recursive search — if the file doesn't exist exactly where you
+    pointed, this raises so you notice the typo immediately.
+    """
+    candidate = (scan_dir / arg).resolve()
+    if not candidate.is_file():
+        raise FileNotFoundError(
+            f"trader not found: {arg!r} (looked at {candidate})"
+        )
+    # Safety: don't allow a `--trader ../OTHER_ROUND/foo.py` escape.
+    try:
+        candidate.relative_to(scan_dir.resolve())
+    except ValueError as exc:
+        raise FileNotFoundError(
+            f"trader {arg!r} resolved outside {scan_dir}: {candidate}"
+        ) from exc
+    return candidate
 
 
 def discover_days(data_dir: Path, round_num: int) -> list[int]:
@@ -286,16 +321,23 @@ RUN_DIR_RE = re.compile(
 
 
 def _current_hashes() -> dict[tuple[int, str], str]:
+    """Hash every trader (top-level AND compiled/) so `--clean stale`
+    only flags genuinely orphan cache dirs."""
     out: dict[tuple[int, str], str] = {}
     for round_dir in ROOT.glob("ROUND_*"):
         m = re.match(r"ROUND_(\d+)$", round_dir.name)
         if not m:
             continue
-        for trader in discover_traders(round_dir):
-            try:
-                out[(int(m.group(1)), trader.stem)] = trader_hash(trader)
-            except OSError:
-                pass
+        scan_dirs = [round_dir]
+        compiled = round_dir / "compiled"
+        if compiled.is_dir():
+            scan_dirs.append(compiled)
+        for scan_dir in scan_dirs:
+            for trader in discover_traders(scan_dir):
+                try:
+                    out[(int(m.group(1)), trader.stem)] = trader_hash(trader)
+                except OSError:
+                    pass
     return out
 
 
@@ -349,15 +391,27 @@ def do_clean(mode: str) -> int:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="rank_traders",
-        description="Concurrent-safe trader ranking via content-addressed cache.",
+        description=(
+            "Concurrent-safe trader ranking via content-addressed cache.\n\n"
+            "Examples:\n"
+            "  uv run rank --round 3                          # all top-level ROUND_3/ traders\n"
+            "  uv run rank --round 3 --compiled               # all ROUND_3/compiled/ traders\n"
+            "  uv run rank --round 3 --trader trader_CRAZY.py # one specific trader\n"
+            "  uv run rank --round 3 --trader sub/trader_X.py # path is relative to ROUND_N/\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("-r", "--round", type=int, default=DEFAULT_ROUND, metavar="N",
                    required=DEFAULT_ROUND is None,
                    help="round number (default: %(default)s)")
     p.add_argument("--day", type=int, default=None, metavar="DAY",
                    help="restrict to one day; default = all days in the round")
-    p.add_argument("--trader", action="append", dest="traders", metavar="NAME",
-                   help="filter to traders whose filename contains NAME (repeatable)")
+    p.add_argument("--trader", action="append", dest="traders", metavar="PATH",
+                   help="trader file relative to ROUND_N/ (or ROUND_N/compiled/ "
+                        "with --compiled). Repeatable. No fuzzy matching: must exist exactly.")
+    p.add_argument("--compiled", action="store_true",
+                   help="evaluate traders in ROUND_N/compiled/ instead of ROUND_N/. "
+                        "Errors if the directory does not exist.")
     p.add_argument("--show-per-product", action="store_true",
                    help="after the main table, print one table per product")
     p.add_argument("--no-cache", action="store_true",
@@ -381,10 +435,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{label} not found: {path}")
             return 1
 
-    traders = discover_traders(round_dir)
+    if args.compiled:
+        scan_dir = round_dir / "compiled"
+        if not scan_dir.is_dir():
+            print(f"--compiled requested, but {scan_dir} does not exist")
+            return 1
+    else:
+        scan_dir = round_dir
+
     if args.traders:
-        needles = [n.lower() for n in args.traders]
-        traders = [t for t in traders if any(n in t.name.lower() for n in needles)]
+        try:
+            traders = [resolve_trader(scan_dir, t) for t in args.traders]
+        except FileNotFoundError as exc:
+            print(str(exc))
+            return 1
+    else:
+        traders = discover_traders(scan_dir)
 
     available = discover_days(data_dir, args.round)
     if args.day is not None and args.day not in available:
@@ -393,24 +459,24 @@ def main(argv: list[str] | None = None) -> int:
     days = [args.day] if args.day is not None else available
 
     if not traders:
-        print("No trader scripts found."); return 1
+        print(f"No trader scripts found in {scan_dir.relative_to(ROOT)}/."); return 1
     if not days:
         print("No datasets found."); return 1
 
-    print(f"Discovered {len(traders)} trader scripts and {len(days)} days: "
-          f"{', '.join(map(str, days))}")
+    print(f"Discovered {len(traders)} trader script(s) in {scan_dir.relative_to(ROOT)}/ "
+          f"and {len(days)} day(s): {', '.join(map(str, days))}")
 
     results: list[TraderResult] = []
     for i, trader in enumerate(traders, 1):
         h = trader_hash(trader)
-        print(f"[{i}/{len(traders)}] Evaluating {trader.relative_to(round_dir).as_posix()}  (hash {h})")
+        print(f"[{i}/{len(traders)}] Evaluating {trader.relative_to(scan_dir).as_posix()}  (hash {h})")
         results.append(evaluate_trader(trader, args.round, data_dir, args.day, args.no_cache))
 
     results.sort(key=lambda r: (r.total_pnl, r.avg_pnl, r.min_day_pnl), reverse=True)
     print()
-    print_table(results, days, round_dir)
+    print_table(results, days, scan_dir)
     if args.show_per_product:
-        print_per_product_tables(results, days, round_dir)
+        print_per_product_tables(results, days, scan_dir)
     return 0
 
 

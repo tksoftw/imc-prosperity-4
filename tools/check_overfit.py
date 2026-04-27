@@ -35,9 +35,9 @@ The final score is a weighted sum of the worst factors, mapped to 0..100.
 This is a *risk* score (higher = worse), not a quality score.
 
 Usage:
-  uv run check-overfit ROUND_3/trader_ff.py
-  uv run check-overfit ROUND_3/trader_ff.py --validation-day 3
-  uv run check-overfit ROUND_3/trader_ff.py --report-only-economic
+  uv run check_overfit ROUND_3/trader_ff.py
+  uv run check_overfit ROUND_3/trader_ff.py --validation-day 3
+  uv run check_overfit ROUND_3/trader_ff.py --report-only-economic
 """
 
 from __future__ import annotations
@@ -528,7 +528,7 @@ def evaluate_all(round_num: int, validation_day: int | None,
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        prog="check-overfit",
+        prog="check_overfit",
         description="Walk-forward + economic + static-analysis overfit audit for a single trader.",
     )
     p.add_argument("trader", type=Path, nargs="?",
