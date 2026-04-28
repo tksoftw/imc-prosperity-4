@@ -1,0 +1,228 @@
+================================================================================
+trader_ff — REAL-DATA-OPTIMIZED ensemble (`ROUND_3/trader_ff.py`)
+================================================================================
+
+Backtest 3-day total: $329,849.50  (all-time high among our traders)
+Real-day-2 target:    ~$15K  (theoretical ceiling = $16,150)
+
+
+--------------------------------------------------------------------------------
+1. WHY trader_ff EXISTS
+--------------------------------------------------------------------------------
+
+Real-deploy logs in imc_logs/ROUND_3/ revealed that backtest PnL is not
+a reliable predictor of real PnL. Specifically:
+
+  * trader_final_OPTIMUM had the LOWEST backtest day-2 of our top
+    candidates ($63K) but the HIGHEST real day-2 ($14,042).
+  * trader_MADSCIENTIST had high backtest day-2 ($86K) but real
+    day-2 was only $11,550 because soft HYDRO skew BLED $4K real.
+
+So trader_ff is built per-product: each strike's strategy is whichever
+ancestor scored highest *on REAL data*, not whichever scored highest in
+backtest. Then I cherry-pick a few proven backtest improvements that
+don't conflict with the real evidence (residual-fade on 5000, basket
+absorber on 5500).
+
+
+--------------------------------------------------------------------------------
+2. REAL-DAY-2 LEDGER (imc_logs/ROUND_3/*.log)
+--------------------------------------------------------------------------------
+
+  optimum.log          $14,042   (best HYDRO $7,868)
+  467965.log           $13,246
+  CRAZY.log            $13,187   (best VEV_5500 $201)
+  final_3.log          $12,944
+  EXPERIMENTS.log      $11,609   (best VEV_5000 $108, VEV_5200 $83)
+  MADSCIENTIST.log     $11,550   (best VELVET $5,831, VEV_5300 $1,380, VEV_5400 $201)
+  462406.log            $3,427
+  448462.log            $3,691
+  447290.log           -$1,796
+
+
+--------------------------------------------------------------------------------
+3. BEST-PER-PRODUCT (real day 2 across all logs)
+--------------------------------------------------------------------------------
+
+  Product                Best   Source
+  ────────────────────  ────  ─────────────────────────────────────────────
+  HYDROGEL_PACK         7,868  optimum  (anchor 9980, wall_mid, skew 0.05)
+  VELVETFRUIT_EXTRACT   5,831  MADSCIENTIST  (skew 0.005)
+  VEV_4000                235  optimum / 467965 / EXPERIMENTS / final_3 / CRAZY
+  VEV_4500                213  MADSCIENTIST  (otherwise 204)
+  VEV_5000                108  EXPERIMENTS  (residual fade)
+  VEV_5100                 29  MADSCIENTIST
+  VEV_5200                 83  EXPERIMENTS  (residual fade)
+  VEV_5300              1,380  MADSCIENTIST  (skew 0.015 + 290 cap)
+  VEV_5400                201  MADSCIENTIST  (soft skew)
+  VEV_5500                201  CRAZY / EXPERIMENTS / final_3  (basket absorber)
+  VEV_6000 / VEV_6500       0  every log
+                       ──────
+  Theoretical max     $16,149
+
+
+--------------------------------------------------------------------------------
+4. WHAT trader_ff DOES (per product)
+--------------------------------------------------------------------------------
+
+HYDROGEL_PACK     OPTIMUM-style: wall_mid, anchor 9980, skew 0.05, take 35.
+                  DON'T soften skew (MADSCIENTIST proved that bleeds real).
+
+VELVETFRUIT       wall_mid + saturated MM + Accumulator tilt + v4_dir
+                  signal + implied-spot tilt. Skew softened 0.015 -> 0.005
+                  (MADSCIENTIST evidence).
+
+VEV_4000/4500     OPTIMUM/EXPERIMENTS flash arb, unchanged.
+
+VEV_5000          EXPERIMENTS residual fade (delta 0.9, strength 1.2),
+                  ext-anchor MM, skew softened 0.05 -> 0.025.
+
+VEV_5100/5200     OPTIMUM BS smile MM with looser take/quote, plus
+                  EXPERIMENTS residual fade (delta-weighted), skew
+                  softened (0.06/0.05 -> 0.03/0.025).
+
+VEV_5300          Static-extrinsic MM with vev_dir tilt; skew softened
+                  0.06 -> 0.015; take size bumped 10 -> 20 to use
+                  the 290 position cap.
+
+VEV_5400          Static-extrinsic MM + small residual fade; skew
+                  softened 0.05 -> 0.02.
+
+VEV_5500          CRAZY/EXPERIMENTS basket-active absorber: when wing-
+                  seller basket fires, post bigger inside bids; small
+                  residual fade.
+
+VEV_6000/6500     Zero-bid absorber (size 40 normally, 300 on basket fire).
+                  Free option exposure.
+
+
+--------------------------------------------------------------------------------
+5. KEY DECISIONS (and why they survived this round)
+--------------------------------------------------------------------------------
+
+DON'T soften HYDRO skew.
+  * MADSCIENTIST.log: skew 0.005 -> HYDRO real $3,735.
+  * optimum.log:     skew 0.050 -> HYDRO real $7,868.
+  * Bot flow on HYDRO real-deploy is DIFFERENT from backtest. Aggressive
+    quotes get adversely-selected on real but make money in backtest.
+
+DO soften everything else (VELVET / 5300 / 5400 / 5000 / 5100 / 5200).
+  * MADSCIENTIST.log proved soft skew on these adds real PnL.
+  * 5300 alone went $695 -> $1,380 real with soft skew.
+
+KEEP basket absorber + zero-bid wings.
+  * Costs nothing if wing seller doesn't bite.
+  * Adds $200/day when they do.
+
+KEEP residual fade on 5000.
+  * EXPERIMENTS.log: 5000 real $108 (vs OPTIMUM $-70).
+  * Backtest also confirms big edge ($30K vs $2K on 5000).
+
+
+--------------------------------------------------------------------------------
+6. BACKTEST RANKING vs SIBLINGS (3-day total)
+--------------------------------------------------------------------------------
+
+  rank  trader                   total       Δ vs trader_final
+  ────  ───────────────────────  ─────────   ─────────────────
+  1     trader_ff.py             329,849.5   +123,768
+  2     trader_MS.py             308,812.5   +102,731
+  3     trader_EXPERIMENTS.py    254,380.5    +48,299
+  4     trader_final_3.py        249,238.5    +43,157
+  5     trader_CRAZY.py          242,610.5    +36,529
+  6     trader_final_OPTIMUM.py  214,103.5     +8,022
+
+trader_ff is rank #1 in 9 of 12 products in the per-product table.
+The 3 ties (4000, 4500-EXPERIMENTS-tied, VELVET-MS-tied) are at the
+real-data ceiling for those strikes.
+
+
+--------------------------------------------------------------------------------
+7. CAVEMAN LESSONS LEARNED THIS ROUND
+--------------------------------------------------------------------------------
+
+1) BACKTEST PnL ≠ REAL PnL. The bot mix on real day 2 differs from
+   the historical CSV. Things that win in backtest can lose real, and
+   vice versa. ALWAYS compare per-product real outcomes when you have
+   them, not just the totals.
+
+2) SOFT SKEW = EDGE EVERYWHERE EXCEPT HYDRO. HYDRO's quote depth is
+   thin so soft skew exposes us to adverse selection on real. Every
+   other product benefits.
+
+3) CHEAP OPTIONALITY IS FREE. The basket-active absorber on 5500 and
+   the 0-bid wing scoops cost nothing when they don't fire. Keep them
+   in until you have evidence they bleed.
+
+4) PRIORITIZE PROVEN REAL WINNERS PER PRODUCT. The whole architecture
+   is just "pick the best ancestor per strike + tweak a few knobs that
+   the backtest agrees on." Beats trying to globally optimize.
+
+
+
+in file:
+"""ROUND_3: trader_ff — REAL-DATA-OPTIMIZED ensemble.
+
+Built from the per-product evidence in imc_logs/ROUND_3/ (real day-2
+submissions). Backtest 3-day total: $329,849. Real-day-2 target: ~$15K.
+
+Each product takes whichever ancestor trader scored highest on REAL
+data, not whichever scored highest in backtest:
+
+  HYDROGEL_PACK         <- trader_final_OPTIMUM
+                           anchor 9980, wall_mid, skew 0.05, take 35.
+                           Real $7,868 (highest of any submission).
+                           DON'T soften skew here — MADSCIENTIST.log
+                           shows soft skew on HYDRO bled $4K real.
+
+  VELVETFRUIT_EXTRACT   <- trader_MADSCIENTIST
+                           wall_mid EMA + saturated MM + v4_dir tilt,
+                           skew 0.005 (was 0.015). Real $5,831
+                           (highest), backtest $79K.
+
+  VEV_4000 / VEV_4500   <- trader_smile_surface flash arb, unchanged.
+                           Real $235 / $204 stable across all logs.
+
+  VEV_5000              <- trader_EXPERIMENTS residual-fade + softer
+                           skew 0.025. Real $108 (best). Residual fade
+                           = fade option_mid jumps not explained by
+                           VELVET delta movement.
+
+  VEV_5100 / VEV_5200   <- BS smile MM with looser take/quote edges
+                           (from OPTIMUM) + residual fade + softer skew
+                           (0.03/0.025 vs 0.06/0.05). Small real edge
+                           but consistently positive.
+
+  VEV_5300              <- MADSCIENTIST-style soft skew (0.015 vs 0.06)
+                           with full vev_dir tilt + 290 cap. Real $1,380
+                           in MADSCIENTIST.log (vs $695 OPTIMUM, $834
+                           CRAZY/EXPERIMENTS) — biggest real-confirmed
+                           option win.
+
+  VEV_5400              <- soft skew 0.02 (vs 0.05) + residual fade.
+                           MADSCIENTIST.log got $201 (vs $123 baseline).
+
+  VEV_5500              <- CRAZY/EXPERIMENTS basket-active absorber.
+                           When wing-seller basket fires, post bigger
+                           bids inside the spread. Real $201.
+
+  VEV_6000 / VEV_6500   <- zero-bid absorber from EXPERIMENTS.
+                           Posts large 0-bid during basket fires; only
+                           sells back at ask=1. Has been $0 real on
+                           every log so far but free option, no risk.
+
+Real PnL ledger of ancestors (day-2 only):
+
+  optimum.log         $14,042   (best HYDRO $7,868)
+  467965.log          $13,246
+  CRAZY.log           $13,187   (best 5500 $201)
+  final_3.log         $12,944
+  EXPERIMENTS.log     $11,609   (best 5000 $108, 5200 $83)
+  MADSCIENTIST.log    $11,550   (best VELVET $5,831, 5300 $1,380, 5400 $201)
+  462406.log           $3,427
+  448462.log           $3,691
+  447290.log          -$1,796
+
+Theoretical max combining real per-product winners: ~$16,150.
+trader_ff aims to be within $1K of that ceiling on real day-2.
+"""

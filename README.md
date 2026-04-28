@@ -116,6 +116,32 @@ The competition only allows the following libraries inside trader files
 > also: clean with `--clean [stale (default), all, or <pattern>] `
 
 
+### [check overfit](tools/check_overfit.py)
+
+`uv run check_overfit ROUND_3/trader_ff.py`
+
+Audits a single trader for overfitting risk. Combines four signals into a 0–100 risk score (lower is better):
+- **Walk-forward CV**: scores the trader on each calendar day; uses the latest available day as a held-out validation set and computes the train→validation gap (a large negative gap = likely overfit).
+- **Per-product stability**: coefficient of variation of every product's PnL across the train days. Flags any leg whose PnL is wildly different day-to-day.
+- **Economic sanity**: win rate, Sharpe, trades/day, $/trade — values that are too "perfect" or too noisy show up here.
+- **Static audit**: counts hardcoded numerics in the trader source and references to a specific submission log (`MADSCIENTIST.log`, `ff_OLD/optimum`, etc.) — proxies for "I tuned this to one day".
+
+In the per-factor table, each row is `metric  value  level  contribution  note`. Example:
+```
+validation_gap   0.329  HIGH   17.9 / 25   validation/train ratio = 67.11%
+```
+means the validation day delivered only 67% of the train-day average (33% drop), which falls in the HIGH-risk band, so this metric burns 17.9 of its 25-point budget.
+
+`uv run check_overfit --all`
+> rank every trader in `ROUND_N/` by overfit risk (uses cached rank-traders results so it's fast on rerun)
+
+> use `--trader-filter X` (repeatable) to restrict the `--all` ranking to filenames containing `X`
+
+> use `--validation-day N` to override which day is held out
+
+> use `--report-only-economic` for a stats-only view (no risk table)
+
+
 ### [round data lab](tools/round_data_lab/README.md)
 `uv run gendata`
 
