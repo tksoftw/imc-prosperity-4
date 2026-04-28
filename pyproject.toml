@@ -27,6 +27,8 @@ dependencies = [
   "uvicorn>=0.30",
   "orjson>=3.10",
   "prosperity4btest>=1.0.3",
+  "dash>=4.1.0",
+  "scipy>=1.15.3",
 ]
 
 [project.optional-dependencies]
