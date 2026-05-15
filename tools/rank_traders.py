@@ -1,26 +1,4 @@
-"""rank_traders — concurrent-safe trader ranking via content-addressed cache.
-
-Cache slots are keyed by `(round, trader_stem, sha256(trader.py)[:8])`, so:
-
-  * editing a trader auto-creates a new cache slot
-  * reverting a trader restores the old slot's instant cache hit
-  * parallel runs share a single `runs/` dir — different traders never
-    collide; same-trader collisions just rerun a deterministic
-    backtester and overwrite identical files (no locks, no deadlocks)
-
-Commands:
-
-  uv run rank                              # rank current traders
-  uv run rank --trader ff --trader MS      # filter by substring
-  uv run rank --show-per-product           # add per-product tables
-  uv run rank --no-cache                   # force a fresh backtest
-  uv run rank --clean                      # = --clean stale (default)
-  uv run rank --clean stale                # drop slots with stale hash
-  uv run rank --clean all                  # drop every run dir
-  uv run rank --clean 'ff_*'               # glob pattern
-
-A blunt `rm -rf runs/` is still safe; it just wipes all cache.
-"""
+"""Rank traders by backtest performance with content-addressed cache."""
 
 from __future__ import annotations
 
@@ -34,17 +12,16 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-RUNS_DIR = ROOT / "runs"
-BACKTESTER = Path.home() / ".cargo" / "bin" / "rust_backtester"
-
-DEFAULT_ROUND = max(
-    (   int(p.name.split("_")[1])
-        for p in ROOT.glob("traders/ROUND_*")
-        if p.is_dir()
-    ),
-    default=None,
+from tools.paths import (
+    BACKTESTER,
+    ROOT,
+    RUNS_DIR,
+    data_dir,
+    default_round,
+    traders_dir,
 )
+
+DEFAULT_ROUND = default_round()
 
 
 # ─── Cache key + dir layout ──────────────────────────────────────────────────
@@ -577,10 +554,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.clean is not None:
         return do_clean(args.clean)
 
-    round_dir = ROOT / "traders" / f"ROUND_{args.round}"
-    data_dir = ROOT / "data" / f"ROUND_{args.round}"
+    round_dir = traders_dir(args.round)
+    data_path = data_dir(args.round)
 
-    for label, path in [("Backtester", BACKTESTER), ("Round", round_dir), ("Data", data_dir)]:
+    for label, path in [("Backtester", BACKTESTER), ("Round", round_dir), ("Data", data_path)]:
         if not path.exists():
             print(f"{label} not found: {path}")
             return 1
@@ -606,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--carry cannot be combined with --day")
         return 1
 
-    available = discover_days(data_dir, args.round)
+    available = discover_days(data_path, args.round)
     if args.day is not None and args.day not in available:
         print(f"Requested day not found in {data_dir}: {args.day}")
         return 1
@@ -624,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
     for i, trader in enumerate(traders, 1):
         h = trader_hash(trader)
         print(f"[{i}/{len(traders)}] Evaluating {trader.relative_to(scan_dir).as_posix()}  (hash {h})")
-        results.append(evaluate_trader(trader, args.round, data_dir, args.day, args.no_cache, args.carry))
+        results.append(evaluate_trader(trader, args.round, data_path, args.day, args.no_cache, args.carry))
 
     results.sort(key=lambda r: (r.total_pnl, r.avg_pnl, r.min_day_pnl), reverse=True)
     print()

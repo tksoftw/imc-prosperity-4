@@ -27,12 +27,10 @@
 
 Admin PowerShell:
 ```powershell
-# 1. From an ADMIN PowerShell. Reboot afterwards, then launch "WSL" from Start.
 wsl --install
 ```
 Ubuntu:
 ```bash
-# 2. Inside the Ubuntu (WSL) shell from here on:
 sudo apt update && sudo apt install -y build-essential git curl
 curl -LsSf https://astral.sh/uv/install.sh | sh && exec bash
 git clone https://github.com/tksoftw/imc-prosperity-4 && cd imc-prosperity-4
@@ -59,13 +57,24 @@ cargo install rust_backtester --locked
 ### macOS
 
 ```bash
-xcode-select --install   # skip if already installed
+xcode-select --install
 curl -LsSf https://astral.sh/uv/install.sh | sh && exec zsh
 git clone https://github.com/tksoftw/imc-prosperity-4 && cd imc-prosperity-4
 uv sync --extra dev && source .venv/bin/activate
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . "$HOME/.cargo/env"
 cargo install rust_backtester --locked
 ```
+
+<details>
+<summary><b>Issues with Python 3.10 dependencies?</b></summary>
+
+>Some of our group members had issues involving Python 3.10 requirements on a new WSL2 instance. These bash commands fixed the issue:
+>```bash
+>sudo apt update
+>sudo apt install -y python3.10 python3.10-dev pkg-config build-essential
+>```
+</details>
+
 
 ---
 
@@ -88,7 +97,7 @@ Note: We mostly use [rank_traders](#rank-traders) for quick backtesting. But oth
 
 ### [Online Visualizer](https://prosperity.equirag.com/)
 
-Drop a submission `.log` to render fills, PnL, and the leaderboard. Logs from the [rust backtester](#rust-backtester) are located in the [runs](runs/) folder (generated after at least one backtest is run).
+Upload a submission `.log` to visualize trades, fills, and PnL. Also see an unofficial backtest leaderboard. Logs from the [rust backtester](#rust-backtester) are located in the [runs](runs/) folder (generated after at least one backtest is run).
 
 ### Submission Libraries
 
@@ -98,7 +107,7 @@ The competition only allows the following libraries inside trader files
 [statistics](https://docs.python.org/3.9/library/statistics.html),
 [math](https://docs.python.org/3.9/library/math.html),
 [typing](https://docs.python.org/3.9/library/typing.html), and
-[jsonpickle](https://jsonpickle.github.io/)
+[jsonpickle](https://jsonpickle.github.io/).
 
 ---
 
@@ -111,49 +120,40 @@ The competition only allows the following libraries inside trader files
 ### [rank traders](tools/rank_traders.py)
 
 `uv run rank`
-> also: show individual products with `--show-per-product`
 
-> also: clean with `--clean [stale (default), all, or <pattern>] `
+Rank all traders by PnL.
 
+> also:  `--show-per-product` to show PnL by product.
 
-### [check overfit](tools/check_overfit.py)
+> also: `--day` to restrict to a specific day.
 
-`uv run check_overfit ROUND_3/trader_ff.py`
+> also `--carry` to carry positions across days  AND set infinite order queue priority.
 
-Audits a single trader for overfitting risk. Combines four signals into a 0–100 risk score (lower is better):
-- **Walk-forward CV**: scores the trader on each calendar day; uses the latest available day as a held-out validation set and computes the train→validation gap (a large negative gap = likely overfit).
-- **Per-product stability**: coefficient of variation of every product's PnL across the train days. Flags any leg whose PnL is wildly different day-to-day.
-- **Economic sanity**: win rate, Sharpe, trades/day, $/trade — values that are too "perfect" or too noisy show up here.
-- **Static audit**: counts hardcoded numerics in the trader source and references to a specific submission log (`MADSCIENTIST.log`, `ff_OLD/optimum`, etc.) — proxies for "I tuned this to one day".
+> also: `--clean [stale (default), all, or <pattern>] ` to clean the runs/ directory.
 
-In the per-factor table, each row is `metric  value  level  contribution  note`. Example:
-```
-validation_gap   0.329  HIGH   17.9 / 25   validation/train ratio = 67.11%
-```
-means the validation day delivered only 67% of the train-day average (33% drop), which falls in the HIGH-risk band, so this metric burns 17.9 of its 25-point budget.
-
-`uv run check_overfit --all`
-> rank every trader in `ROUND_N/` by overfit risk (uses cached rank-traders results so it's fast on rerun)
-
-> use `--trader-filter X` (repeatable) to restrict the `--all` ranking to filenames containing `X`
-
-> use `--validation-day N` to override which day is held out
-
-> use `--report-only-economic` for a stats-only view (no risk table)
-
-
-### [compile trader](tools/compile_trader.py)
+### [compile traders](tools/compile_trader.py)
 
 `uv run compile --trader trader_X.py`
 
-Inlines a trader's local `ROUND_N` (and cross-round) imports into one self-contained submission file under `traders/ROUND_N/compiled/`.
+Inline a trader's local `ROUND_N` (and cross-round) imports into one self-contained submission file under `traders/ROUND_N/compiled/`.
 
-> also: `--all` to compile every trader in the round that has local imports (self-contained traders are skipped)
+> also: `--all` (instead of `--trader`) to compile every trader in the round (self-contained traders are skipped).
 
-> also: `--round N` to override the round (defaults to the highest `traders/ROUND_*/` present)
+> also: `--round N` to override the round (defaults to the highest `traders/ROUND_*/` present).
 
+### [check overfit](tools/check_overfit.py)
+
+`uv run check_overfit --trader trader_X.py`
+
+Audit all traders for overfitting risk. Combines four signals into a 0–100 risk score (lower is better).
+> also: `--all` (instead of `--trader`) to check all traders in the round.
+
+> also: `--round N` to override the round (defaults to the highest `traders/ROUND_*/` present).
 
 ### [round data lab](tools/round_data_lab/README.md)
+
+(deprecated) Identify and generate synthetic round data.
+
 `uv run gendata`
 
 ### By round
@@ -180,6 +180,24 @@ Inlines a trader's local `ROUND_N` (and cross-round) imports into one self-conta
 ### [round 3 playground](tools/round_3_playground.py)
 `python3 tools/round_3_playground.py`
 > headless mode: `python3 tools/round_3_playground.py --no-gui --b1 755 --b2 840 --avg-b2 840`
+
+</details>
+
+<details>
+<summary>Round 4</summary>
+
+### [Aether Casino](tools/exotics/websim.py)
+`python3 tools/exotics/websim.py`
+
+</details>
+
+
+<details>
+<summary>Round 5</summary>
+
+### [News Optimizer](tools/prosperity_news_optimizer.py)
+
+`python3 tools/prosperity_news_optimizer.py`
 
 </details>
 

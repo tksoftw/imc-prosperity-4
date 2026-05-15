@@ -1,22 +1,4 @@
-"""Compile a trader with its local imports into one pasted submission file.
-
-Local imports must use the ``traders.ROUND_N…`` form — bare ``ROUND_N``,
-unqualified module names, and relative imports are not recognised.
-
-The generated file is intentionally plain: each local dependency is pasted
-into a small builder function, local ``traders.ROUND_N`` import statements
-are rewritten from the AST, and the final module's ``Trader`` class is
-exposed at top level.
-
-The artefact targets **standalone submission**: copying only ``*_compiled.py``
-must work as long as the runtime provides ``datamodel`` (and transitive deps like
-jsonpickle) with the workspace root on ``sys.path``. By default each compile runs
-an import probe to catch missing or wrong inlining—use ``--no-verify`` to skip.
-
-By default pasted modules are **squeezed**: leading docstrings removed and the
-module re-emitted with ``ast.unparse`` (drops comments, compacts layout) to stay
-under submission size limits. Use ``--no-squeeze`` for a readable, larger bundle.
-"""
+"""Inline trader imports into a standalone submission file."""
 
 from __future__ import annotations
 
@@ -29,8 +11,7 @@ import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parent.parent
+from tools.paths import ROOT, default_round, traders_dir
 
 ROUND_RE = re.compile(r"^ROUND_(\d+)$")
 
@@ -106,17 +87,12 @@ class CompileResult:
     modules: tuple[Module, ...]
 
 
-DEFAULT_ROUND = max(
-    (   int(p.name.split("_")[1])
-        for p in ROOT.glob("traders/ROUND_*")
-        if p.is_dir()
-    ),
-    default=None,
-)
+DEFAULT_ROUND = default_round()
 
 
+# Use traders_dir() from tools.paths instead
 def round_dir(round_num: int) -> Path:
-    return ROOT / "traders" / f"ROUND_{round_num}"
+    return traders_dir(round_num)
 
 
 def module_name(path: Path) -> str:

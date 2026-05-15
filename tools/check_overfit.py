@@ -1,44 +1,4 @@
-"""tools/check_overfit.py — overfitting risk audit for a single trader.
-
-Walk-forward + held-out validation + economic-sanity + regularization audit.
-Reuses the `rank_traders.evaluate_trader` pipeline so we get the SAME metrics
-the leaderboard uses.
-
-What we compute:
-
-  Walk-forward CV
-    Score the trader on each calendar day independently. Use the LAST day as
-    the held-out validation set (gap = 0 — we run train and val back-to-back,
-    matching what the live submission actually does).
-
-  Train ↔ validation gap
-    `gap = (validation - train_mean) / max(|train_mean|, 1)`. Large negative
-    gap = train wins by a lot ⇒ likely overfit. Positive gap = validation
-    beats train ⇒ no overfit signal.
-
-  Per-day & per-product stability (coefficient of variation)
-    `cv = std / |mean|` across the train days for total PnL and for every
-    product. Anything > 0.6 is a "shaky leg" of the strategy.
-
-  Economic sanity
-    - PnL per trade (extreme = either luck-driven or noise-trading)
-    - Trades per day (very high turnover = pattern-matching micro-features)
-    - Bot diversity per product (concentrated edge on one bot = fragile)
-    - Win rate (fraction of train days with positive PnL)
-    - Sharpe-like ratio (mean / std across train days)
-
-  Regularization audit (static analysis of the trader source)
-    Counts hardcoded magic numbers, log-/submission-derived constants, and
-    file size. More magic numbers ⇒ more places that could be fit to one day.
-
-The final score is a weighted sum of the worst factors, mapped to 0..100.
-This is a *risk* score (higher = worse), not a quality score.
-
-Usage:
-  uv run check_overfit ROUND_3/trader_ff.py
-  uv run check_overfit ROUND_3/trader_ff.py --validation-day 3
-  uv run check_overfit ROUND_3/trader_ff.py --report-only-economic
-"""
+"""Audit traders for overfitting risk with walk-forward validation."""
 
 from __future__ import annotations
 
@@ -52,13 +12,15 @@ from pathlib import Path
 from typing import Iterable
 
 # Reuse the rank_traders evaluation pipeline.
+from tools.paths import ROOT, data_dir, default_round, traders_dir
 from tools.rank_traders import (
-    DEFAULT_ROUND,
-    ROOT,
     discover_days,
     discover_traders,
     evaluate_trader,
+    resolve_trader as resolve_trader_path,
 )
+
+DEFAULT_ROUND = default_round()
 
 
 # ── Risk thresholds ─────────────────────────────────────────────────────────
@@ -204,8 +166,8 @@ def _cv(values: Iterable[float]) -> float:
 
 
 def evaluate_overfit(trader: Path, round_num: int, validation_day: int | None) -> OverfitReport:
-    data_dir = ROOT / f"data/ROUND_{round_num}"
-    days = discover_days(data_dir, round_num)
+    data_path = data_dir(round_num)
+    days = discover_days(data_path, round_num)
     if not days:
         sys.exit(f"No days found in {data_dir}")
     if validation_day is None:
@@ -217,7 +179,7 @@ def evaluate_overfit(trader: Path, round_num: int, validation_day: int | None) -
         sys.exit("Need at least one train day in addition to the validation day.")
 
     print(f"Evaluating {trader.name} — train={train_days}, validation={validation_day}", file=sys.stderr)
-    res = evaluate_trader(trader, round_num, data_dir, day=None, no_cache=False, carry=False)
+    res = evaluate_trader(trader, round_num, data_path, day=None, no_cache=False, carry=False)
 
     train_pnls = {d: res.totals_by_day[d] for d in train_days if d in res.totals_by_day}
     val_pnl = res.totals_by_day.get(validation_day, 0.0)
@@ -507,7 +469,7 @@ def render_rank(reports: list[OverfitReport], by_pnl: bool = False) -> None:
 
 def evaluate_all(round_num: int, validation_day: int | None,
                  trader_filter: list[str] | None) -> list[OverfitReport]:
-    round_dir = ROOT / f"traders/ROUND_{round_num}"
+    round_dir = traders_dir(round_num)
     traders = discover_traders(round_dir)
     if trader_filter:
         traders = [t for t in traders if any(f in t.name for f in trader_filter)]
@@ -531,9 +493,9 @@ def main() -> int:
         prog="check_overfit",
         description="Walk-forward + economic + static-analysis overfit audit for a single trader.",
     )
-    p.add_argument("trader", type=Path, nargs="?",
-                   help="Path to a trader script (e.g. ROUND_3/trader_ff.py). "
-                        "Omit when using --all.")
+    p.add_argument("--trader", type=str, default=None,
+                   help="Trader filename (e.g. trader_ff.py). "
+                        "Required unless using --all.")
     p.add_argument("-r", "--round", type=int, default=DEFAULT_ROUND,
                    help=f"Round number (default: {DEFAULT_ROUND}).")
     p.add_argument("--validation-day", type=int, default=None,
@@ -558,9 +520,11 @@ def main() -> int:
 
     if args.trader is None:
         sys.exit("Specify a trader path or pass --all.")
-    trader = args.trader.resolve()
-    if not trader.exists():
-        sys.exit(f"Trader file not found: {trader}")
+    round_traders_dir = traders_dir(args.round)
+    try:
+        trader = resolve_trader_path(round_traders_dir, args.trader)
+    except FileNotFoundError as exc:
+        sys.exit(str(exc))
 
     report = evaluate_overfit(trader, args.round, args.validation_day)
     render(report, only_economic=args.report_only_economic)
