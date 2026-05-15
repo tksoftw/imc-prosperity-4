@@ -267,10 +267,10 @@ You'll see a green "WSL" indicator in the bottom-left once connected.
 ## Writeups & reference repos
 
 ### [Hedgehogs writeup](examples/hedgehogs.md)
-2nd overall, very detailed.
+Prosperity 3: 2nd overall, very detailed.
 
-### [CarterT27/imc-prosperity-3](https://github.com/CarterT27/imc-prosperity-3)
-9th overall, 2nd US.
+### [Alpha Animals writeup](https://github.com/CarterT27/imc-prosperity-3)
+Prosperity 3: 9th overall, 2nd US.
 
 ### [Rust backtester](https://github.com/GeyzsoN/prosperity_rust_backtester)
 Source for the [`rust_backtester`](#rust_backtester) binary.
