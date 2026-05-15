@@ -1,0 +1,53 @@
+from datamodel import OrderDepth, TradingState, Order
+from typing import Dict, List
+
+
+class Trader:
+    PEBBLES = ["PEBBLES_L", "PEBBLES_M", "PEBBLES_S", "PEBBLES_XL", "PEBBLES_XS"]
+    ACTIVE = ["PEBBLES_XL", "PEBBLES_L"]
+    LIMIT = 140
+    ORDER_SIZE = 10
+    EDGE = 2.0
+
+    def run(self, state: TradingState):
+        mids = self.mids(state.order_depths)
+        result: Dict[str, List[Order]] = {}
+        if len(mids) != len(self.PEBBLES):
+            return result, 0, ""
+
+        total_mid = sum(mids.values())
+        for product in self.ACTIVE:
+            depth = state.order_depths.get(product)
+            if depth is None or not depth.buy_orders or not depth.sell_orders:
+                continue
+            best_bid = max(depth.buy_orders)
+            best_ask = min(depth.sell_orders)
+            fair = 50000.0 - (total_mid - mids[product])
+            position = state.position.get(product, 0)
+            orders: List[Order] = []
+
+            bid_price = best_bid + 1
+            ask_price = best_ask - 1
+            buy_edge = fair - bid_price
+            sell_edge = ask_price - fair
+            buy_room = self.LIMIT - position
+            sell_room = self.LIMIT + position
+
+            if buy_edge >= self.EDGE and buy_room > 0:
+                qty = min(self.ORDER_SIZE, buy_room)
+                orders.append(Order(product, bid_price, qty))
+            if sell_edge >= self.EDGE and sell_room > 0:
+                qty = min(self.ORDER_SIZE, sell_room)
+                orders.append(Order(product, ask_price, -qty))
+            if orders:
+                result[product] = orders
+
+        return result, 0, ""
+
+    def mids(self, depths: Dict[str, OrderDepth]) -> Dict[str, float]:
+        mids: Dict[str, float] = {}
+        for product in self.PEBBLES:
+            depth = depths.get(product)
+            if depth is not None and depth.buy_orders and depth.sell_orders:
+                mids[product] = (max(depth.buy_orders) + min(depth.sell_orders)) / 2.0
+        return mids

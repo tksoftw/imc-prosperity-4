@@ -1,0 +1,254 @@
+from datamodel import OrderDepth, TradingState, Order
+from typing import Dict, List, Tuple
+import json
+import math
+
+
+class Trader:
+    PEBBLES = ("PEBBLES_L", "PEBBLES_M", "PEBBLES_S", "PEBBLES_XL", "PEBBLES_XS")
+    BASE_TARGETS = {
+        "GALAXY_SOUNDS_BLACK_HOLES": 20,
+        "GALAXY_SOUNDS_DARK_MATTER": 12,
+        "GALAXY_SOUNDS_PLANETARY_RINGS": 16,
+        "GALAXY_SOUNDS_SOLAR_FLAMES": 16,
+        "GALAXY_SOUNDS_SOLAR_WINDS": 8,
+        "MICROCHIP_CIRCLE": -10,
+        "MICROCHIP_OVAL": -20,
+        "MICROCHIP_RECTANGLE": -16,
+        "MICROCHIP_SQUARE": 20,
+        "MICROCHIP_TRIANGLE": -14,
+        "OXYGEN_SHAKE_EVENING_BREATH": -16,
+        "OXYGEN_SHAKE_GARLIC": 20,
+        "PANEL_1X2": -16,
+        "PANEL_1X4": -10,
+        "PANEL_2X2": -12,
+        "PANEL_2X4": 20,
+        "PANEL_4X4": -10,
+        "ROBOT_IRONING": -20,
+        "ROBOT_LAUNDRY": -10,
+        "ROBOT_MOPPING": 18,
+        "ROBOT_VACUUMING": -16,
+        "SLEEP_POD_COTTON": 18,
+        "SLEEP_POD_LAMB_WOOL": 12,
+        "SLEEP_POD_NYLON": -8,
+        "SLEEP_POD_POLYESTER": 20,
+        "SLEEP_POD_SUEDE": 20,
+        "SNACKPACK_CHOCOLATE": -8,
+        "SNACKPACK_PISTACHIO": -16,
+        "SNACKPACK_RASPBERRY": 8,
+        "SNACKPACK_STRAWBERRY": 16,
+        "SNACKPACK_VANILLA": 6,
+        "TRANSLATOR_ASTRO_BLACK": -14,
+        "TRANSLATOR_ECLIPSE_CHARCOAL": -8,
+        "TRANSLATOR_GRAPHITE_MIST": 4,
+        "TRANSLATOR_SPACE_GRAY": -16,
+        "TRANSLATOR_VOID_BLUE": 18,
+        "UV_VISOR_AMBER": -20,
+        "UV_VISOR_MAGENTA": 18,
+        "UV_VISOR_ORANGE": -4,
+        "UV_VISOR_RED": 16,
+        "UV_VISOR_YELLOW": 16,
+    }
+    PAIR_MODELS: Dict[str, List[Tuple[str, float, float]]] = {
+        "PEBBLES_S": [("PEBBLES_XL", -0.3914, 194.70), ("PEBBLES_XS", 0.4589, 123.35)],
+        "PEBBLES_M": [("PEBBLES_XS", -0.3293, -591.52), ("PEBBLES_S", -0.5082, -279.36)],
+        "PEBBLES_L": [("PEBBLES_M", 0.3035, 94.23)],
+        "PEBBLES_XL": [("PEBBLES_S", -1.7788, 1326.43), ("PEBBLES_XS", -1.0143, 593.22)],
+        "PEBBLES_XS": [("PEBBLES_XL", -0.6752, -417.30), ("PEBBLES_S", 1.3886, -1112.78)],
+    }
+
+    SCALE = 1.15
+    CAP = 25
+    MAX_ORDER = 10
+    ROBOT_DISHES_BY_DAY = {2: 50, 3: 100, 4: 240}
+    PAIR_LIMIT = 120
+    PAIR_ORDER_SIZE = 8
+    PAIR_EDGE = 4.0
+    CROSS_WEIGHT = 5
+    LONG_CAPS_BY_DAY = {
+        2: {"PEBBLES_S": -60, "PEBBLES_XS": -120},
+        3: {"PEBBLES_S": -60, "PEBBLES_XS": -120},
+        4: {"PEBBLES_S": -180, "PEBBLES_XS": -240},
+    }
+    PEBBLES_TARGETS_BY_DAY = {
+        4: {"PEBBLES_S": -180, "PEBBLES_XS": -230},
+    }
+    PAIR_SKIP_BY_DAY = {
+        4: {"PEBBLES_S", "PEBBLES_XS"},
+    }
+    CROSS_OPEN_MODELS_BY_DAY: Dict[int, Dict[str, List[Tuple[str, float, float]]]] = {
+        2: {
+            "PEBBLES_M": [("TRANSLATOR_ECLIPSE_CHARCOAL", -0.0484, -0.588)],
+            "PEBBLES_S": [("GALAXY_SOUNDS_BLACK_HOLES", 0.0090, -0.709)],
+            "PEBBLES_XL": [("UV_VISOR_YELLOW", 0.0066, 1.753)],
+            "PEBBLES_XS": [("OXYGEN_SHAKE_EVENING_BREATH", 0.0028, 1.031)],
+        },
+        3: {
+            "PEBBLES_M": [("GALAXY_SOUNDS_SOLAR_WINDS", 0.0143, 1.448)],
+            "PEBBLES_S": [("ROBOT_LAUNDRY", 0.0083, 0.571)],
+            "PEBBLES_XL": [("MICROCHIP_CIRCLE", -0.0141, 1.053)],
+            "PEBBLES_XS": [("GALAXY_SOUNDS_SOLAR_WINDS", -0.0205, -1.834)],
+        },
+        4: {
+            "PEBBLES_M": [("SNACKPACK_RASPBERRY", -0.0120, 0.874)],
+            "PEBBLES_XL": [("MICROCHIP_OVAL", -0.0045, -1.098)],
+        },
+    }
+
+    def run(self, state: TradingState):
+        memory = self.load_state(state.traderData)
+        day = int(memory.get("day", 2))
+        carry_mode = bool(memory.get("carry_mode", False))
+        new_day = False
+        inferred_day = self.infer_day_from_pebbles_regime(state)
+        if inferred_day is not None and inferred_day > day:
+            new_day = True
+            carry_mode = carry_mode or self.has_pebbles_inventory(state)
+            day = inferred_day
+
+        mids = self.mids(state.order_depths)
+        open_mids = memory.get("open_mids")
+        if new_day or not isinstance(open_mids, dict):
+            open_mids = mids
+
+        result: Dict[str, List[Order]] = {}
+        for product, target in self.make_targets(day).items():
+            orders = self.rebalance(product, target, state)
+            if orders:
+                result[product] = orders
+
+        pair_orders = self.pair_regression_orders(state, day, open_mids, carry_mode)
+        for product, orders in pair_orders.items():
+            result[product] = result.get(product, []) + orders
+
+        trader_data = json.dumps(
+            {"day": day, "open_mids": open_mids, "carry_mode": carry_mode},
+            separators=(",", ":"),
+        )
+        return result, 0, trader_data
+
+    def make_targets(self, day: int) -> Dict[str, int]:
+        targets: Dict[str, int] = {}
+        for product, raw_target in self.BASE_TARGETS.items():
+            target = int(round(raw_target * self.SCALE))
+            targets[product] = max(-self.CAP, min(self.CAP, target))
+        targets["ROBOT_DISHES"] = self.ROBOT_DISHES_BY_DAY.get(day, 100)
+        targets.update(self.PEBBLES_TARGETS_BY_DAY.get(day, {}))
+        return targets
+
+    def pair_regression_orders(
+        self,
+        state: TradingState,
+        day: int,
+        open_mids: Dict[str, float],
+        carry_mode: bool,
+    ) -> Dict[str, List[Order]]:
+        mids = self.mids(state.order_depths)
+        center = self.pebbles_center(mids)
+        if center is None:
+            return {}
+        result: Dict[str, List[Order]] = {}
+        skip_products = self.PAIR_SKIP_BY_DAY.get(day, set())
+        cross_models = {} if carry_mode and day >= 4 else self.CROSS_OPEN_MODELS_BY_DAY.get(day, {})
+        for product, models in self.PAIR_MODELS.items():
+            if product in skip_products:
+                continue
+            depth = state.order_depths.get(product)
+            if depth is None or not depth.buy_orders or not depth.sell_orders:
+                continue
+            fairs = []
+            for reference, beta, intercept in models:
+                ref_mid = mids.get(reference)
+                if ref_mid is not None:
+                    fairs.append(center + intercept + beta * (ref_mid - center))
+            for reference, intercept, beta in cross_models.get(product, []):
+                ref_mid = mids.get(reference)
+                ref_open = open_mids.get(reference)
+                target_open = open_mids.get(product)
+                if ref_mid is not None and ref_open and target_open:
+                    fair = float(target_open) * math.exp(intercept + beta * math.log(ref_mid / float(ref_open)))
+                    fairs.extend([fair] * self.CROSS_WEIGHT)
+            if not fairs:
+                continue
+
+            fair = sum(fairs) / len(fairs)
+            best_bid = max(depth.buy_orders)
+            best_ask = min(depth.sell_orders)
+            bid_price = best_bid + 1
+            ask_price = best_ask - 1
+            position = state.position.get(product, 0)
+            long_cap = self.long_cap(product, day)
+            buy_room = long_cap - position
+            sell_room = self.PAIR_LIMIT + position
+            orders: List[Order] = []
+
+            if fair - bid_price >= self.PAIR_EDGE and buy_room > 0:
+                orders.append(Order(product, bid_price, min(self.PAIR_ORDER_SIZE, buy_room)))
+            if ask_price - fair >= self.PAIR_EDGE and sell_room > 0:
+                orders.append(Order(product, ask_price, -min(self.PAIR_ORDER_SIZE, sell_room)))
+            if orders:
+                result[product] = orders
+        return result
+
+    def long_cap(self, product: str, day: int) -> int:
+        day_caps = self.LONG_CAPS_BY_DAY.get(day, self.LONG_CAPS_BY_DAY[3])
+        return day_caps.get(product, self.PAIR_LIMIT)
+
+    def has_pebbles_inventory(self, state: TradingState) -> bool:
+        return any(state.position.get(product, 0) != 0 for product in self.PAIR_MODELS)
+
+    def infer_day_from_pebbles_regime(self, state: TradingState) -> int | None:
+        mids = self.mids(state.order_depths)
+        if any(mids.get(product) is None for product in self.PEBBLES):
+            return None
+        ranking = sorted(self.PEBBLES, key=lambda product: mids[product], reverse=True)
+        top_three = set(ranking[:3])
+        bottom_two = set(ranking[-2:])
+        if top_three == {"PEBBLES_L", "PEBBLES_M", "PEBBLES_XL"} and bottom_two == {"PEBBLES_S", "PEBBLES_XS"}:
+            return 4
+        if (
+            ranking[0] == "PEBBLES_XL"
+            and ranking[-1] == "PEBBLES_XS"
+            and ranking.index("PEBBLES_L") < min(ranking.index("PEBBLES_M"), ranking.index("PEBBLES_S"))
+        ):
+            return 3
+        return None
+
+    def pebbles_center(self, mids: Dict[str, float]) -> float | None:
+        values = [mids.get(product) for product in self.PEBBLES]
+        if any(value is None for value in values):
+            return None
+        return sum(float(value) for value in values) / len(values)
+
+    def mids(self, depths: Dict[str, OrderDepth]) -> Dict[str, float]:
+        mids: Dict[str, float] = {}
+        for product, depth in depths.items():
+            if depth is not None and depth.buy_orders and depth.sell_orders:
+                mids[product] = (max(depth.buy_orders) + min(depth.sell_orders)) / 2.0
+        return mids
+
+    def rebalance(self, product: str, target: int, state: TradingState) -> List[Order]:
+        depth = state.order_depths.get(product)
+        if depth is None or not depth.buy_orders or not depth.sell_orders:
+            return []
+        position = state.position.get(product, 0)
+        delta = target - position
+        if delta == 0:
+            return []
+
+        best_bid = max(depth.buy_orders)
+        best_ask = min(depth.sell_orders)
+        if delta > 0:
+            quantity = min(delta, self.MAX_ORDER, abs(depth.sell_orders[best_ask]))
+            return [Order(product, best_ask, quantity)] if quantity > 0 else []
+        quantity = min(-delta, self.MAX_ORDER, abs(depth.buy_orders[best_bid]))
+        return [Order(product, best_bid, -quantity)] if quantity > 0 else []
+
+    def load_state(self, trader_data: str) -> Dict:
+        if not trader_data:
+            return {}
+        try:
+            parsed = json.loads(trader_data)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}

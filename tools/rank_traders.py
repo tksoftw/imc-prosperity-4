@@ -39,8 +39,10 @@ RUNS_DIR = ROOT / "runs"
 BACKTESTER = Path.home() / ".cargo" / "bin" / "rust_backtester"
 
 DEFAULT_ROUND = max(
-    (int(m.group(1)) for p in ROOT.glob("ROUND_*") if p.is_dir()
-     and (m := re.match(r"ROUND_(\d+)$", p.name))),
+    (   int(p.name.split("_")[1])
+        for p in ROOT.glob("traders/ROUND_*")
+        if p.is_dir()
+    ),
     default=None,
 )
 
@@ -65,14 +67,37 @@ def run_dirs(round_num: int, trader: Path, days: list[int], single: bool) -> dic
     }
 
 
+def carry_dir(round_num: int, trader: Path) -> Path:
+    """Carry mode: backtester writes a single dir at runs/{base} (no day suffix)
+    because positions are carried across days into one combined run.
+    """
+    return RUNS_DIR / f"rank_round{round_num}_{trader.stem}_{trader_hash(trader)}"
+
+
 def renamed_log(run_dir: Path, trader: Path, day: int) -> Path:
     return run_dir / f"{trader.stem}_submission_d{day}.log"
+
+
+def carry_log(run_dir: Path, trader: Path) -> Path:
+    return run_dir / f"{trader.stem}_submission_carry.log"
+
+
+def carry_per_day_metrics_path(run_dir: Path) -> Path:
+    return run_dir / "metrics_per_day.json"
 
 
 def cache_hit(per_day: dict[int, Path], trader: Path) -> bool:
     return all(
         (rd / "metrics.json").exists() and renamed_log(rd, trader, d).exists()
         for d, rd in per_day.items()
+    )
+
+
+def carry_cache_hit(run_dir: Path, trader: Path) -> bool:
+    return (
+        (run_dir / "metrics.json").exists()
+        and carry_log(run_dir, trader).exists()
+        and carry_per_day_metrics_path(run_dir).exists()
     )
 
 
@@ -149,16 +174,22 @@ def discover_days(data_dir: Path, round_num: int) -> list[int]:
 
 
 def run_backtest(trader: Path, round_num: int, data_dir: Path, day: int | None,
-                 no_cache: bool) -> dict[int, tuple[dict, Path]]:
+                 no_cache: bool, carry: bool) -> dict[int, tuple[dict, Path]]:
     """Run rust_backtester (or hit cache) and return {day: (metrics, log_path)}.
 
     Concurrency model: deterministic outputs + atomic per-file renames mean
     same-trader collisions just rerun and overwrite identical content. No locks.
+
+    In carry mode, all days share one output dir + log; per-day metrics are
+    derived from the activitiesLog and cached alongside.
     """
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     days = [day] if day is not None else discover_days(data_dir, round_num)
+
+    if carry:
+        return _run_backtest_carry(trader, round_num, data_dir, days, no_cache)
+
     per_day = run_dirs(round_num, trader, days, single=day is not None)
-    base_run_id = (RUNS_DIR / next(iter(per_day.values())).name).name  # only used in run-id arg
     run_id = (
         f"rank_round{round_num}_{trader.stem}_{trader_hash(trader)}"
         + (f"_d{day}" if day is not None else "")
@@ -205,6 +236,85 @@ def run_backtest(trader: Path, round_num: int, data_dir: Path, day: int | None,
     return _read_cache(per_day, trader)
 
 
+def _run_backtest_carry(trader: Path, round_num: int, data_dir: Path,
+                        days: list[int], no_cache: bool) -> dict[int, tuple[dict, Path]]:
+    rd = carry_dir(round_num, trader)
+    log_path = carry_log(rd, trader)
+    per_day_metrics_path = carry_per_day_metrics_path(rd)
+    run_id = rd.name
+
+    if not no_cache and carry_cache_hit(rd, trader):
+        return _read_carry_cache(rd, trader, days)
+
+    cmd = [
+        str(BACKTESTER),
+        "--trader", str(trader.relative_to(ROOT)),
+        "--dataset", str(data_dir.relative_to(ROOT)),
+        "--run-id", run_id,
+        "--output-root", str(RUNS_DIR.relative_to(ROOT)),
+        "--artifact-mode", "submission",
+        "--products", "full",
+        "--carry",
+    ]
+    completed = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"Backtest failed for {trader} (carry)\n"
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+        )
+    if not (rd / "metrics.json").exists():
+        raise FileNotFoundError(f"missing metrics: {rd / 'metrics.json'}")
+
+    raw = rd / "submission.log"
+    if raw.exists() and not log_path.exists():
+        try:
+            raw.rename(log_path)
+        except OSError as exc:
+            if exc.errno not in (errno.EEXIST, errno.ENOENT):
+                raise
+
+    per_day = _derive_carry_per_day_metrics(log_path)
+    per_day_metrics_path.write_text(json.dumps(per_day))
+
+    return _read_carry_cache(rd, trader, days)
+
+
+def _derive_carry_per_day_metrics(log_path: Path) -> dict[str, dict]:
+    """Walk activitiesLog once, keep the highest-timestamp profit_and_loss
+    per (day, product). Carry-mode metrics.json only has end-of-run totals;
+    this synthesises per-day breakdowns from the activity stream.
+    """
+    activities = json.loads(log_path.read_text())["activitiesLog"]
+    last_ts: dict[tuple[int, str], int] = {}
+    last_pnl: dict[int, dict[str, float]] = {}
+    lines_iter = iter(activities.split("\n"))
+    next(lines_iter, None)  # skip header
+    for line in lines_iter:
+        if not line:
+            continue
+        parts = line.split(";")
+        if len(parts) < 17:
+            continue
+        try:
+            day = int(parts[0])
+            ts = int(parts[1])
+            pnl = float(parts[16]) if parts[16] else 0.0
+        except ValueError:
+            continue
+        product = parts[2]
+        key = (day, product)
+        if key not in last_ts or ts >= last_ts[key]:
+            last_ts[key] = ts
+            last_pnl.setdefault(day, {})[product] = pnl
+    return {
+        str(d): {
+            "final_pnl_by_product": prods,
+            "final_pnl_total": sum(prods.values()),
+        }
+        for d, prods in last_pnl.items()
+    }
+
+
 def _read_cache(per_day: dict[int, Path], trader: Path) -> dict[int, tuple[dict, Path]]:
     return {
         d: (json.loads((rd / "metrics.json").read_text()), renamed_log(rd, trader, d))
@@ -212,32 +322,67 @@ def _read_cache(per_day: dict[int, Path], trader: Path) -> dict[int, tuple[dict,
     }
 
 
+def _read_carry_cache(run_dir: Path, trader: Path,
+                      days: list[int]) -> dict[int, tuple[dict, Path]]:
+    log_path = carry_log(run_dir, trader)
+    per_day = json.loads(carry_per_day_metrics_path(run_dir).read_text())
+    out: dict[int, tuple[dict, Path]] = {}
+    for d in days:
+        m = per_day.get(str(d))
+        if m is None:
+            raise FileNotFoundError(
+                f"carry metrics missing day {d} in {carry_per_day_metrics_path(run_dir)}"
+            )
+        out[d] = (m, log_path)
+    return out
+
+
 def evaluate_trader(trader: Path, round_num: int, data_dir: Path,
-                    day: int | None, no_cache: bool) -> TraderResult:
+                    day: int | None, no_cache: bool, carry: bool) -> TraderResult:
     result = TraderResult(trader_path=trader)
-    for d, (metrics, log_path) in run_backtest(trader, round_num, data_dir, day, no_cache).items():
-        result.totals_by_day[d] = float(metrics["final_pnl_total"])
-        result.per_product_by_day[d] = {
-            p: float(v) for p, v in metrics["final_pnl_by_product"].items()
-        }
-        own_n = own_by_p = bot_n = 0
-        own_by_p_dict, bot_by_p_dict = {}, {}
-        for trade in (json.loads(log_path.read_text()).get("tradeHistory") or []):
-            ours = trade.get("buyer") == "SUBMISSION" or trade.get("seller") == "SUBMISSION"
-            sym = trade.get("symbol")
-            if ours:
-                own_n += 1
-                if sym is not None:
-                    own_by_p_dict[sym] = own_by_p_dict.get(sym, 0) + 1
-            else:
-                bot_n += 1
-                if sym is not None:
-                    bot_by_p_dict[sym] = bot_by_p_dict.get(sym, 0) + 1
-        result.own_trades_by_day[d] = own_n
-        result.own_trades_by_day_per_product[d] = own_by_p_dict
-        result.bot_trades_by_day[d] = bot_n
-        result.bot_trades_by_day_per_product[d] = bot_by_p_dict
+    runs = run_backtest(trader, round_num, data_dir, day, no_cache, carry)
+
+    if carry:
+        # Single log shared across days; partition tradeHistory by trade["day"].
+        single_log = next(iter(runs.values()))[1]
+        all_trades = json.loads(single_log.read_text()).get("tradeHistory") or []
+        trades_by_day: dict[int, list] = {d: [] for d in runs.keys()}
+        for t in all_trades:
+            d = t.get("day")
+            if d in trades_by_day:
+                trades_by_day[d].append(t)
+        for d, (metrics, _) in runs.items():
+            _populate_day(result, d, metrics, trades_by_day[d])
+    else:
+        for d, (metrics, log_path) in runs.items():
+            trades = json.loads(log_path.read_text()).get("tradeHistory") or []
+            _populate_day(result, d, metrics, trades)
     return result
+
+
+def _populate_day(result: TraderResult, d: int, metrics: dict, trades: list) -> None:
+    result.totals_by_day[d] = float(metrics["final_pnl_total"])
+    result.per_product_by_day[d] = {
+        p: float(v) for p, v in metrics["final_pnl_by_product"].items()
+    }
+    own_n = bot_n = 0
+    own_by_p_dict: dict[str, int] = {}
+    bot_by_p_dict: dict[str, int] = {}
+    for trade in trades:
+        ours = trade.get("buyer") == "SUBMISSION" or trade.get("seller") == "SUBMISSION"
+        sym = trade.get("symbol")
+        if ours:
+            own_n += 1
+            if sym is not None:
+                own_by_p_dict[sym] = own_by_p_dict.get(sym, 0) + 1
+        else:
+            bot_n += 1
+            if sym is not None:
+                bot_by_p_dict[sym] = bot_by_p_dict.get(sym, 0) + 1
+    result.own_trades_by_day[d] = own_n
+    result.own_trades_by_day_per_product[d] = own_by_p_dict
+    result.bot_trades_by_day[d] = bot_n
+    result.bot_trades_by_day_per_product[d] = bot_by_p_dict
 
 
 # ─── Rendering ───────────────────────────────────────────────────────────────
@@ -314,9 +459,10 @@ def print_per_product_tables(results: list[TraderResult], days: list[int], round
 # Recognised run-dir name shapes:
 #   rank_round{N}_{stem}_{hash}-round-{N}-day{±D}    (multi-day)
 #   rank_round{N}_{stem}_{hash}_d{D}                 (single-day)
+#   rank_round{N}_{stem}_{hash}                      (carry: one dir, all days)
 RUN_DIR_RE = re.compile(
     r"^rank_round(?P<round>\d+)_(?P<stem>.+)_(?P<hash>[0-9a-f]{8})"
-    r"(?:-round-\d+-day[+-]?\d+|_d-?\d+)$"
+    r"(?:-round-\d+-day[+-]?\d+|_d-?\d+)?$"
 )
 
 
@@ -324,7 +470,7 @@ def _current_hashes() -> dict[tuple[int, str], str]:
     """Hash every trader (top-level AND compiled/) so `--clean stale`
     only flags genuinely orphan cache dirs."""
     out: dict[tuple[int, str], str] = {}
-    for round_dir in ROOT.glob("ROUND_*"):
+    for round_dir in ROOT.glob("traders/ROUND_*"):
         m = re.match(r"ROUND_(\d+)$", round_dir.name)
         if not m:
             continue
@@ -394,10 +540,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=(
             "Concurrent-safe trader ranking via content-addressed cache.\n\n"
             "Examples:\n"
-            "  uv run rank --round 3                          # all top-level ROUND_3/ traders\n"
-            "  uv run rank --round 3 --compiled               # all ROUND_3/compiled/ traders\n"
+            "  uv run rank --round 3                          # all top-level traders/ROUND_3/ traders\n"
+            "  uv run rank --round 3 --compiled               # all traders/ROUND_3/compiled/ traders\n"
             "  uv run rank --round 3 --trader trader_CRAZY.py # one specific trader\n"
-            "  uv run rank --round 3 --trader sub/trader_X.py # path is relative to ROUND_N/\n"
+            "  uv run rank --round 3 --trader sub/trader_X.py # path is relative to traders/ROUND_N/\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -407,15 +553,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--day", type=int, default=None, metavar="DAY",
                    help="restrict to one day; default = all days in the round")
     p.add_argument("--trader", action="append", dest="traders", metavar="PATH",
-                   help="trader file relative to ROUND_N/ (or ROUND_N/compiled/ "
+                   help="trader file relative to traders/ROUND_N/ (or traders/ROUND_N/compiled/ "
                         "with --compiled). Repeatable. No fuzzy matching: must exist exactly.")
     p.add_argument("--compiled", action="store_true",
-                   help="evaluate traders in ROUND_N/compiled/ instead of ROUND_N/. "
+                   help="evaluate traders in traders/ROUND_N/compiled/ instead of traders/ROUND_N/. "
                         "Errors if the directory does not exist.")
     p.add_argument("--show-per-product", action="store_true",
                    help="after the main table, print one table per product")
     p.add_argument("--no-cache", action="store_true",
                    help="ignore cached results and force a fresh backtester run")
+    p.add_argument("--carry", action="store_true",
+                   help="carry positions across days in one combined backtest. "
+                        "Per-day pnl breakdowns are derived from the activitiesLog. "
+                        "Cannot be combined with --day.")
     p.add_argument("--clean", nargs="?", const="stale", default=None, metavar="MODE",
                    help="clean cache: MODE = stale (default), all, or a glob pattern")
     return p.parse_args(argv)
@@ -427,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.clean is not None:
         return do_clean(args.clean)
 
-    round_dir = ROOT / f"ROUND_{args.round}"
+    round_dir = ROOT / "traders" / f"ROUND_{args.round}"
     data_dir = ROOT / "data" / f"ROUND_{args.round}"
 
     for label, path in [("Backtester", BACKTESTER), ("Round", round_dir), ("Data", data_dir)]:
@@ -452,6 +602,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         traders = discover_traders(scan_dir)
 
+    if args.carry and args.day is not None:
+        print("--carry cannot be combined with --day")
+        return 1
+
     available = discover_days(data_dir, args.round)
     if args.day is not None and args.day not in available:
         print(f"Requested day not found in {data_dir}: {args.day}")
@@ -470,7 +624,7 @@ def main(argv: list[str] | None = None) -> int:
     for i, trader in enumerate(traders, 1):
         h = trader_hash(trader)
         print(f"[{i}/{len(traders)}] Evaluating {trader.relative_to(scan_dir).as_posix()}  (hash {h})")
-        results.append(evaluate_trader(trader, args.round, data_dir, args.day, args.no_cache))
+        results.append(evaluate_trader(trader, args.round, data_dir, args.day, args.no_cache, args.carry))
 
     results.sort(key=lambda r: (r.total_pnl, r.avg_pnl, r.min_day_pnl), reverse=True)
     print()

@@ -217,7 +217,7 @@ def evaluate_overfit(trader: Path, round_num: int, validation_day: int | None) -
         sys.exit("Need at least one train day in addition to the validation day.")
 
     print(f"Evaluating {trader.name} — train={train_days}, validation={validation_day}", file=sys.stderr)
-    res = evaluate_trader(trader, round_num, data_dir, day=None, no_cache=False)
+    res = evaluate_trader(trader, round_num, data_dir, day=None, no_cache=False, carry=False)
 
     train_pnls = {d: res.totals_by_day[d] for d in train_days if d in res.totals_by_day}
     val_pnl = res.totals_by_day.get(validation_day, 0.0)
@@ -507,7 +507,7 @@ def render_rank(reports: list[OverfitReport], by_pnl: bool = False) -> None:
 
 def evaluate_all(round_num: int, validation_day: int | None,
                  trader_filter: list[str] | None) -> list[OverfitReport]:
-    round_dir = ROOT / f"ROUND_{round_num}"
+    round_dir = ROOT / f"traders/ROUND_{round_num}"
     traders = discover_traders(round_dir)
     if trader_filter:
         traders = [t for t in traders if any(f in t.name for f in trader_filter)]

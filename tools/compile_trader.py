@@ -1,8 +1,21 @@
-"""Compile ROUND_N traders with local imports into one pasted submission file.
+"""Compile a trader with its local imports into one pasted submission file.
+
+Local imports must use the ``traders.ROUND_N…`` form — bare ``ROUND_N``,
+unqualified module names, and relative imports are not recognised.
 
 The generated file is intentionally plain: each local dependency is pasted
-into a small builder function, local import statements are rewritten from the
-AST, and the final module's ``Trader`` class is exposed at top level.
+into a small builder function, local ``traders.ROUND_N`` import statements
+are rewritten from the AST, and the final module's ``Trader`` class is
+exposed at top level.
+
+The artefact targets **standalone submission**: copying only ``*_compiled.py``
+must work as long as the runtime provides ``datamodel`` (and transitive deps like
+jsonpickle) with the workspace root on ``sys.path``. By default each compile runs
+an import probe to catch missing or wrong inlining—use ``--no-verify`` to skip.
+
+By default pasted modules are **squeezed**: leading docstrings removed and the
+module re-emitted with ``ast.unparse`` (drops comments, compacts layout) to stay
+under submission size limits. Use ``--no-squeeze`` for a readable, larger bundle.
 """
 
 from __future__ import annotations
@@ -10,6 +23,8 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+import subprocess
+import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +33,64 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 ROUND_RE = re.compile(r"^ROUND_(\d+)$")
+
+
+def _is_docstring_stmt(stmt: ast.stmt) -> bool:
+    return (
+        isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+    )
+
+
+def _body_without_leading_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
+    if body and _is_docstring_stmt(body[0]):
+        return body[1:]
+    return body
+
+
+class _StripDocstrings(ast.NodeTransformer):
+    """Remove leading docstrings from Module / Class / def (only standard doc slots)."""
+
+    def visit_Module(self, node: ast.Module) -> ast.Module:
+        self.generic_visit(node)
+        node.body = _body_without_leading_docstring(node.body)
+        return node
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        self.generic_visit(node)
+        node.body = _body_without_leading_docstring(node.body)
+        return node
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
+        self.generic_visit(node)
+        node.body = _body_without_leading_docstring(node.body)
+        return node
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        self.generic_visit(node)
+        node.body = _body_without_leading_docstring(node.body)
+        return node
+
+
+def squeeze_pasted_python(source: str, *, filename: str) -> str:
+    """Drop docstrings and comments (via ``ast.unparse``) to shrink pasted modules."""
+    stripped = source.strip()
+    if not stripped:
+        return ""
+    try:
+        tree = ast.parse(source, filename=filename)
+    except SyntaxError:
+        return source.rstrip() + "\n"
+    tree = _StripDocstrings().visit(tree)
+    ast.fix_missing_locations(tree)
+    try:
+        text = ast.unparse(tree).rstrip()
+    except Exception:
+        return source.rstrip() + "\n"
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text + "\n"
+
 
 # Canonical handle for a local module: (round_num, module_name).
 # Cross-round imports (e.g. ROUND_4 → ROUND_3 base trader) need the
@@ -33,16 +106,17 @@ class CompileResult:
     modules: tuple[Module, ...]
 
 
-def default_round() -> int | None:
-    rounds = []
-    for path in ROOT.glob("ROUND_*"):
-        if path.is_dir() and (m := ROUND_RE.match(path.name)):
-            rounds.append(int(m.group(1)))
-    return max(rounds, default=None)
+DEFAULT_ROUND = max(
+    (   int(p.name.split("_")[1])
+        for p in ROOT.glob("traders/ROUND_*")
+        if p.is_dir()
+    ),
+    default=None,
+)
 
 
 def round_dir(round_num: int) -> Path:
-    return ROOT / f"ROUND_{round_num}"
+    return ROOT / "traders" / f"ROUND_{round_num}"
 
 
 def module_name(path: Path) -> str:
@@ -53,69 +127,66 @@ def module_path(round_num: int, name: str) -> Path:
     return round_dir(round_num) / f"{name}.py"
 
 
-def _round_from_pkg(name: str) -> int | None:
-    """Return N for `ROUND_N`, else None."""
-    m = ROUND_RE.match(name)
-    return int(m.group(1)) if m else None
+def _parse_traders_pkg(dotted: str) -> tuple[int, str | None] | None:
+    """Parse a dotted import head rooted at the `traders.` package.
+
+    Returns ``(round_num, submodule | None)`` for ``traders.ROUND_N`` and
+    ``traders.ROUND_N.submodule[.…]``; returns ``None`` for everything
+    else. ``submodule`` is the file we'll inline (the piece immediately
+    after ``ROUND_N``); deeper dotted segments are caller-resolved
+    attribute access.
+
+    `traders.` is the ONLY supported root for local imports — bare
+    ``ROUND_N``, bare module names, and relative imports are not
+    recognised.
+    """
+    parts = dotted.split(".")
+    if len(parts) < 2 or parts[0] != "traders":
+        return None
+    m = ROUND_RE.match(parts[1])
+    if not m:
+        return None
+    sub = parts[2] if len(parts) >= 3 else None
+    return int(m.group(1)), sub
 
 
 def local_dependency_names(path: Path, round_num: int) -> set[Module]:
     """Return (round_num, module_name) pairs for local imports in ``path``.
 
-    Recognises imports from the entry's own round AND from any other
-    ROUND_N package — this is required because ROUND_4 traders often
-    inherit from ROUND_3 base classes (trader_FLIPVOL etc.). Bare
-    relative or unqualified imports default to ``round_num``.
+    Only ``traders.ROUND_N``-rooted imports are recognised. Cross-round
+    imports (e.g. a ROUND_4 trader inheriting from ``traders.ROUND_3``)
+    work because the round tag is encoded in the dotted path itself.
     """
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
     deps: set[Module] = set()
 
-    def _add(target_round: int, candidate: str) -> bool:
+    def _add(target_round: int, candidate: str) -> None:
         if module_path(target_round, candidate).exists():
             deps.add((target_round, candidate))
-            return True
-        return False
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            # Absolute, e.g. `from X import …` (level 0).
-            if node.level == 0 and node.module:
-                # `from ROUND_N import trader_X as alias`
-                if (target := _round_from_pkg(node.module)) is not None:
-                    for alias in node.names:
-                        _add(target, alias.name.split(".", 1)[0])
-                    continue
-                # `from ROUND_N.trader_X import Foo`
-                if "." in node.module:
-                    head, tail = node.module.split(".", 1)
-                    if (target := _round_from_pkg(head)) is not None:
-                        if _add(target, tail.split(".", 1)[0]):
-                            continue
-                # `from trader_X import Foo` — same round (rare/legacy).
-                _add(round_num, node.module.split(".", 1)[0])
+            if node.level != 0 or not node.module:
                 continue
-
-            # `from . import trader_X`
-            if node.level == 1 and node.module is None:
+            parsed = _parse_traders_pkg(node.module)
+            if parsed is None:
+                continue
+            target_round, sub = parsed
+            if sub is None:
+                # `from traders.ROUND_N import trader_X[, trader_Y]`
                 for alias in node.names:
-                    _add(round_num, alias.name.split(".", 1)[0])
-                continue
-
-            # `from .trader_X import Foo`
-            if node.level == 1 and node.module:
-                _add(round_num, node.module.split(".", 1)[0])
-                continue
-
+                    _add(target_round, alias.name.split(".", 1)[0])
+            else:
+                # `from traders.ROUND_N.trader_X import Foo`
+                _add(target_round, sub)
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                # `import ROUND_N.trader_X as x`
-                parts = alias.name.split(".")
-                if len(parts) >= 2 and (target := _round_from_pkg(parts[0])) is not None:
-                    if _add(target, parts[1]):
-                        continue
-                # `import trader_X as x` — same round (rare/legacy).
-                _add(round_num, parts[0])
+                # `import traders.ROUND_N.trader_X[.…] [as x]`
+                parsed = _parse_traders_pkg(alias.name)
+                if parsed is None or parsed[1] is None:
+                    continue
+                _add(parsed[0], parsed[1])
 
     deps.discard((round_num, module_name(path)))
     return deps
@@ -144,8 +215,7 @@ def local_import_replacement(node: ast.AST, round_num: int) -> tuple[list[str] |
     """Return replacement lines for local imports, plus future imports seen.
 
     ``None`` means leave the source text untouched. An empty list means remove
-    the statement. Recognises ROUND_N prefixes for ANY N — not just the
-    entry trader's round — so cross-round inheritance works.
+    the statement. Only ``traders.ROUND_N…`` imports are rewritten.
     """
     futures: set[str] = set()
 
@@ -154,102 +224,66 @@ def local_import_replacement(node: ast.AST, round_num: int) -> tuple[list[str] |
         return [], futures
 
     if isinstance(node, ast.ImportFrom):
+        if node.level != 0 or not node.module:
+            return None, futures
+        parsed = _parse_traders_pkg(node.module)
+        if parsed is None:
+            return None, futures
+        target_round, sub = parsed
         replacements: list[str] = []
         remaining: list[ast.alias] = []
 
-        def add_module_alias(alias: ast.alias, candidate: str) -> None:
-            target = alias.asname or candidate
-            replacements.append(f"{target} = {local_module_expr(candidate)}")
-
-        def add_attr_alias(alias: ast.alias, candidate: str) -> None:
-            if alias.name == "*":
-                raise RuntimeError("cannot compile wildcard local import")
-            target = alias.asname or alias.name
-            replacements.append(f"{target} = {local_module_expr(candidate)}.{alias.name}")
-
-        # Absolute imports.
-        if node.level == 0 and node.module:
-            target_round = _round_from_pkg(node.module)
-
-            # `from ROUND_N import trader_X as alias`
-            if target_round is not None:
-                for alias in node.names:
-                    candidate = alias.name.split(".", 1)[0]
-                    if module_path(target_round, candidate).exists():
-                        add_module_alias(alias, candidate)
-                    else:
-                        remaining.append(alias)
-
-            # `from ROUND_N.trader_X import Foo`
-            elif "." in node.module:
-                head, tail = node.module.split(".", 1)
-                target_round = _round_from_pkg(head)
-                if target_round is not None:
-                    candidate = tail.split(".", 1)[0]
-                    if module_path(target_round, candidate).exists():
-                        for alias in node.names:
-                            add_attr_alias(alias, candidate)
-                        return replacements, futures
-
-            else:
-                # `from trader_X import Foo` — legacy same-round form.
-                candidate = node.module.split(".", 1)[0]
-                if module_path(round_num, candidate).exists():
-                    for alias in node.names:
-                        add_attr_alias(alias, candidate)
-                    return replacements, futures
-
-        elif node.level == 1 and node.module is None:
+        if sub is None:
+            # `from traders.ROUND_N import trader_X[, trader_Y][ as alias]`
             for alias in node.names:
                 candidate = alias.name.split(".", 1)[0]
-                if module_path(round_num, candidate).exists():
-                    add_module_alias(alias, candidate)
+                if module_path(target_round, candidate).exists():
+                    target = alias.asname or candidate
+                    replacements.append(f"{target} = {local_module_expr(candidate)}")
                 else:
                     remaining.append(alias)
-
-        elif node.level == 1 and node.module:
-            candidate = node.module.split(".", 1)[0]
-            if module_path(round_num, candidate).exists():
-                for alias in node.names:
-                    add_attr_alias(alias, candidate)
-                return replacements, futures
+        else:
+            # `from traders.ROUND_N.trader_X import Foo[, Bar][ as Baz]`
+            if not module_path(target_round, sub).exists():
+                return None, futures
+            for alias in node.names:
+                if alias.name == "*":
+                    raise RuntimeError("cannot compile wildcard local import")
+                target = alias.asname or alias.name
+                replacements.append(f"{target} = {local_module_expr(sub)}.{alias.name}")
 
         if replacements:
             if remaining:
                 replacements.append(import_from_syntax(node, remaining))
             return replacements, futures
+        return None, futures
 
     if isinstance(node, ast.Import):
         replacements = []
         remaining = []
+        consumed_any = False
         for alias in node.names:
-            parts = alias.name.split(".")
-
-            # `import ROUND_N.trader_X as x`
-            if len(parts) >= 2 and (tgt := _round_from_pkg(parts[0])) is not None:
-                candidate = parts[1]
-                if module_path(tgt, candidate).exists():
-                    target = alias.asname or parts[0]
-                    value = (
-                        local_module_expr(candidate) if alias.asname
-                        else local_module_expr(parts[0])
-                    )
-                    replacements.append(f"{target} = {value}")
-                    continue
-
-            # `import trader_X as x` — legacy same-round form.
-            root = parts[0]
-            if module_path(round_num, root).exists():
-                target = alias.asname or root
-                replacements.append(f"{target} = {local_module_expr(root)}")
+            parsed = _parse_traders_pkg(alias.name)
+            if parsed is None:
+                remaining.append(alias)
                 continue
+            target_round, sub = parsed
+            if sub is None or not module_path(target_round, sub).exists():
+                remaining.append(alias)
+                continue
+            consumed_any = True
+            if alias.asname:
+                # `import traders.ROUND_N.trader_X as x` -> `x = trader_X`
+                replacements.append(f"{alias.asname} = {local_module_expr(sub)}")
+            # else: `import traders.ROUND_N.trader_X` — already exposed at
+            # the top of the compiled file as `traders.ROUND_N.trader_X`,
+            # so the line can be dropped without binding anything new.
 
-            remaining.append(alias)
-
-        if replacements:
+        if consumed_any:
             if remaining:
                 replacements.append(import_syntax(remaining))
             return replacements, futures
+        return None, futures
 
     return None, futures
 
@@ -259,7 +293,9 @@ def pasted_source(path: Path, round_num: int) -> tuple[str, set[str]]:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
     lines = source.splitlines()
-    replacements: list[tuple[int, int, list[str]]] = []
+    # (start inclusive, end exclusive) — overlap on same slice should not happen,
+    # but last write wins after sort by descending start line.
+    span_replacements: dict[tuple[int, int], list[str]] = {}
     futures: set[str] = set()
 
     for node in ast.walk(tree):
@@ -271,9 +307,9 @@ def pasted_source(path: Path, round_num: int) -> tuple[str, set[str]]:
             continue
         start = node.lineno - 1
         end = getattr(node, "end_lineno", node.lineno)
-        replacements.append((start, end, repl))
+        span_replacements[(start, end)] = repl
 
-    for start, end, repl in sorted(replacements, reverse=True):
+    for (start, end), repl in sorted(span_replacements.items(), reverse=True):
         lines[start:end] = repl
 
     text = "\n".join(lines).rstrip()
@@ -310,7 +346,7 @@ def dependency_order(entry: Path, round_num: int) -> list[Module]:
     return ordered
 
 
-def render_compiled(entry: Path, round_num: int) -> tuple[str, tuple[Module, ...]]:
+def render_compiled(entry: Path, round_num: int, *, squeeze: bool = True) -> tuple[str, tuple[Module, ...]]:
     deps = dependency_order(entry, round_num)
     entry_mod: Module = (round_num, module_name(entry))
     modules: list[Module] = [*deps, entry_mod]
@@ -335,13 +371,15 @@ def render_compiled(entry: Path, round_num: int) -> tuple[str, tuple[Module, ...
     futures: set[str] = set()
     for mod in modules:
         round_n, name = mod
-        source, module_futures = pasted_source(module_path(round_n, name), round_n)
+        path_mod = module_path(round_n, name)
+        source, module_futures = pasted_source(path_mod, round_n)
+        if squeeze:
+            source = squeeze_pasted_python(source, filename=str(path_mod))
         pasted[mod] = source
         futures.update(module_futures)
 
     chunks = [
-        "# Auto-generated by `uv run compile`.",
-        "# Do not edit by hand; edit the source trader and recompile.",
+        "# `uv run compile`; edit source & recompile. Needs datamodel on sys.path.",
     ]
     if futures:
         chunks.append(f"from __future__ import {', '.join(sorted(futures))}")
@@ -353,10 +391,11 @@ def render_compiled(entry: Path, round_num: int) -> tuple[str, tuple[Module, ...
             "class __CompiledModule:",
             "    pass",
             "",
+            "traders = __CompiledModule()",
         ]
     )
     for r in rounds_used:
-        chunks.append(f"ROUND_{r} = __CompiledModule()")
+        chunks.append(f"traders.ROUND_{r} = __CompiledModule()")
     chunks.append("")
 
     for mod in modules:
@@ -367,19 +406,15 @@ def render_compiled(entry: Path, round_num: int) -> tuple[str, tuple[Module, ...
         builder = f"__build_{name}"
         chunks.extend(
             [
-                f"# --- begin pasted {rel} ---",
+                f"#+{rel}",
                 f"def {builder}():",
-                textwrap.indent(source, "    ") if source else "    pass",
-                "",
-                "    __m = __CompiledModule()",
-                "    for __k, __v in list(locals().items()):",
-                "        if not __k.startswith('__'):",
-                "            setattr(__m, __k, __v)",
+                textwrap.indent(source.rstrip("\n"), "    ") if source else "    pass",
+                "    __m=__CompiledModule()",
+                "    for __k,__v in list(locals().items()):",
+                "        if not __k.startswith('__'):setattr(__m,__k,__v)",
                 "    return __m",
-                "",
-                f"{name} = {builder}()",
-                f"ROUND_{round_n}.{name} = {name}",
-                f"# --- end pasted {rel} ---",
+                f"{name}={builder}()",
+                f"setattr(traders.ROUND_{round_n},{name!r},{name})",
                 "",
             ]
         )
@@ -400,24 +435,63 @@ def output_path_for(src: Path, round_num: int, out_dir: Path | None) -> Path:
     return target_dir / f"{src.stem}_compiled.py"
 
 
-def compile_one(src: Path, round_num: int, out_dir: Path | None) -> CompileResult:
-    text, modules = render_compiled(src, round_num)
+def compile_one(src: Path, round_num: int, out_dir: Path | None, *, verify: bool, squeeze: bool = True) -> CompileResult:
+    if not local_dependency_names(src, round_num):
+        raise SystemExit(
+            f"refusing to compile {src.name!r}: it has no `traders.ROUND_{round_num}…` "
+            f"imports to inline — submit that `.py` from traders/ROUND_{round_num}/ as-is."
+        )
+    text, modules = render_compiled(src, round_num, squeeze=squeeze)
     dst = output_path_for(src, round_num, out_dir)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(text, encoding="utf-8")
+    if verify:
+        verify_compiled_loads(dst, ROOT)
     return CompileResult(src=src, dst=dst, modules=modules)
 
 
-def discover_traders(round_num: int) -> list[Path]:
-    """All top-level traders in ROUND_N/. Never recurses; never returns
-    files inside ROUND_N/compiled/ or any leading-underscore subdir."""
+def discover_round_py_modules(round_num: int) -> list[Path]:
+    """Top-level ``traders/ROUND_N/*.py`` only (not subdirs, not ``compiled/``).
+
+    ``ROUND_N`` here is ``traders/ROUND_{round_num}/`` under the repo root.
+    """
     rdir = round_dir(round_num)
+    skip = {"__init__.py"}
     return sorted(
         p
-        for p in rdir.glob("trader*.py")
+        for p in rdir.glob("*.py")
         if p.is_file()
         and not p.name.startswith("_")
+        and p.name not in skip
     )
+
+
+def verify_compiled_loads(dst: Path, root: Path) -> None:
+    """Execute the compiled module with only ``root`` on ``sys.path``; require ``Trader``."""
+    dst_abs = dst.resolve()
+    snippet = f"""import pathlib, sys
+ROOT = pathlib.Path({str(root.resolve())!r}).resolve()
+sys.path.insert(0, str(ROOT))
+p = pathlib.Path({str(dst_abs)!r}).resolve()
+code = compile(p.read_text(encoding="utf-8"), str(p), "exec")
+ns = {{"__name__": "compiled_trader_probe", "__file__": str(p), "__builtins__": __builtins__}}
+exec(code, ns)
+T = ns.get("Trader")
+if T is None:
+    raise RuntimeError("compiled file did not define top-level Trader")
+"""
+    proc = subprocess.run(
+        [sys.executable, "-c", snippet],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"compiled trader failed import probe: {dst_abs}\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
 
 
 def resolve_trader(arg: str, round_num: int) -> Path:
@@ -436,13 +510,12 @@ def resolve_trader(arg: str, round_num: int) -> Path:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    dflt = default_round()
     parser = argparse.ArgumentParser(
         prog="compile",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent(
             """\
-            Compile ROUND_N traders with local ROUND_N imports into one file.
+            Compile a trader with its local `traders.ROUND_N…` imports into one file.
 
             Examples:
               uv run compile --round 3 --trader trader_BUGALPHA.py
@@ -451,17 +524,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             """
         ),
     )
-    parser.add_argument("-r", "--round", type=int, default=dflt,
-                        required=dflt is None, metavar="N",
-                        help=f"round number (default: {dflt if dflt is not None else 'required'})")
+    parser.add_argument("-r", "--round", type=int, default=DEFAULT_ROUND,
+                        required=DEFAULT_ROUND is None, metavar="N",
+                        help=f"round number (default: {DEFAULT_ROUND if DEFAULT_ROUND is not None else 'required'})")
     parser.add_argument("--trader", action="append", dest="traders", metavar="PATH",
                         help="trader file relative to ROUND_N/. Repeatable. "
                              "No fuzzy matching: must exist exactly.")
     parser.add_argument("--all", action="store_true",
-                        help="compile every ROUND_N/trader*.py that has at least one local import. "
-                             "Traders with no local deps are skipped (their source is already self-contained).")
+                        help="compile every `traders/ROUND_N/*.py` that imports at "
+                             "least one sibling via `traders.ROUND_N…` (skip zero-dep files).")
     parser.add_argument("--out-dir", type=Path, default=None,
                         help="output directory (default: ROUND_N/compiled)")
+    parser.add_argument("--no-verify", action="store_true",
+                        help="skip subprocess import probe (default: verify each output loads with only workspace root on sys.path)")
+    parser.add_argument("--no-squeeze", action="store_true",
+                        help="paste original source formatting (much larger output; default squeezes pasted modules)")
     return parser.parse_args(argv)
 
 
@@ -477,30 +554,26 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"round directory not found: {rdir}")
 
     if args.all:
-        candidates = discover_traders(round_num)
-        # Skip self-contained traders: --all is for compiling things
-        # that NEED inlining, not for re-emitting copies of leaf traders.
-        targets = [
-            p for p in candidates
-            if local_dependency_names(p, round_num)
-        ]
-        skipped = len(candidates) - len(targets)
+        candidates = discover_round_py_modules(round_num)
+        targets = [p for p in candidates if local_dependency_names(p, round_num)]
+        skipped_self = len(candidates) - len(targets)
+        if not targets:
+            print(
+                f"no traders with local imports in traders/ROUND_{round_num}/ "
+                f"({skipped_self} file(s) skipped — zero `traders.ROUND_N…` deps)"
+            )
+            return 0
     else:
         if not args.traders:
-            raise SystemExit("provide --trader PATH, or use --all")
+            raise SystemExit("provide --trader PATH relative to ROUND_N/, or use --all")
         targets = [resolve_trader(arg, round_num) for arg in args.traders]
-        skipped = 0
 
-    if not targets:
-        if skipped:
-            print(f"no traders with local imports found in ROUND_{round_num} "
-                  f"({skipped} self-contained trader(s) skipped)")
-            return 0
-        raise SystemExit(f"no traders found in ROUND_{round_num}")
-
+    verify = not args.no_verify
     results: list[CompileResult] = []
     for src in targets:
-        result = compile_one(src.resolve(), round_num, args.out_dir)
+        result = compile_one(
+            src.resolve(), round_num, args.out_dir, verify=verify, squeeze=not args.no_squeeze
+        )
         results.append(result)
         rel_dst = result.dst.relative_to(ROOT) if result.dst.is_relative_to(ROOT) else result.dst
         dep_count = max(0, len(result.modules) - 1)
@@ -508,8 +581,12 @@ def main(argv: list[str] | None = None) -> int:
 
     out_dir = args.out_dir or round_dir(round_num) / "compiled"
     msg = f"wrote {len(results)} file(s) to {out_dir}"
-    if skipped:
-        msg += f" (skipped {skipped} self-contained trader(s))"
+    if args.all:
+        skipped_self = len(discover_round_py_modules(round_num)) - len(results)
+        if skipped_self:
+            msg += f" ({skipped_self} zero-dep file(s) in traders/ROUND_{round_num}/ skipped)"
+    if verify:
+        msg += " (import probe OK)"
     print(msg)
     return 0
 

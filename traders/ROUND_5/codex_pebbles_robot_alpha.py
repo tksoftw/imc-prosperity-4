@@ -1,0 +1,125 @@
+from datamodel import OrderDepth, TradingState, Order
+from typing import Dict, List
+import json
+
+
+class Trader:
+    BASE_TARGETS = {
+        "GALAXY_SOUNDS_BLACK_HOLES": 20,
+        "GALAXY_SOUNDS_DARK_MATTER": 12,
+        "GALAXY_SOUNDS_PLANETARY_RINGS": 16,
+        "GALAXY_SOUNDS_SOLAR_FLAMES": 16,
+        "GALAXY_SOUNDS_SOLAR_WINDS": 8,
+        "MICROCHIP_CIRCLE": -10,
+        "MICROCHIP_OVAL": -20,
+        "MICROCHIP_RECTANGLE": -16,
+        "MICROCHIP_SQUARE": 20,
+        "MICROCHIP_TRIANGLE": -14,
+        "OXYGEN_SHAKE_EVENING_BREATH": -16,
+        "OXYGEN_SHAKE_GARLIC": 20,
+        "PANEL_1X2": -16,
+        "PANEL_1X4": -10,
+        "PANEL_2X2": -12,
+        "PANEL_2X4": 20,
+        "PANEL_4X4": -10,
+        "PEBBLES_L": 6,
+        "PEBBLES_M": 8,
+        "PEBBLES_S": -16,
+        "PEBBLES_XL": 20,
+        "PEBBLES_XS": -20,
+        "ROBOT_DISHES": 10,
+        "ROBOT_IRONING": -20,
+        "ROBOT_LAUNDRY": -10,
+        "ROBOT_MOPPING": 18,
+        "ROBOT_VACUUMING": -16,
+        "SLEEP_POD_COTTON": 18,
+        "SLEEP_POD_LAMB_WOOL": 12,
+        "SLEEP_POD_NYLON": -8,
+        "SLEEP_POD_POLYESTER": 20,
+        "SLEEP_POD_SUEDE": 20,
+        "SNACKPACK_CHOCOLATE": -8,
+        "SNACKPACK_PISTACHIO": -16,
+        "SNACKPACK_RASPBERRY": 8,
+        "SNACKPACK_STRAWBERRY": 16,
+        "SNACKPACK_VANILLA": 6,
+        "TRANSLATOR_ASTRO_BLACK": -14,
+        "TRANSLATOR_ECLIPSE_CHARCOAL": -8,
+        "TRANSLATOR_GRAPHITE_MIST": 4,
+        "TRANSLATOR_SPACE_GRAY": -16,
+        "TRANSLATOR_VOID_BLUE": 18,
+        "UV_VISOR_AMBER": -20,
+        "UV_VISOR_MAGENTA": 18,
+        "UV_VISOR_ORANGE": -4,
+        "UV_VISOR_RED": 16,
+        "UV_VISOR_YELLOW": 16,
+    }
+    PEBBLES = ["PEBBLES_L", "PEBBLES_M", "PEBBLES_S", "PEBBLES_XL", "PEBBLES_XS"]
+    PEBBLES_PAIR_TARGETS = {
+        "PEBBLES_L": 70,
+        "PEBBLES_M": 90,
+        "PEBBLES_S": -180,
+        "PEBBLES_XL": 230,
+        "PEBBLES_XS": -230,
+    }
+
+    SCALE = 1.15
+    CAP = 25
+    MAX_ORDER = 10
+    ROBOT_DISHES_BY_DAY = {2: 50, 3: 100, 4: 240}
+
+    def run(self, state: TradingState):
+        memory = self.load_state(state.traderData)
+        day = int(memory.get("day", 2))
+        last_timestamp = memory.get("last_timestamp")
+        if last_timestamp is not None and state.timestamp < int(last_timestamp):
+            day += 1
+        if state.timestamp >= 3000000:
+            day = max(day, 2 + state.timestamp // 3000000)
+
+        targets = self.make_targets(day, state.order_depths)
+        result: Dict[str, List[Order]] = {}
+        for product, target in targets.items():
+            orders = self.rebalance(product, target, state)
+            if orders:
+                result[product] = orders
+
+        trader_data = json.dumps({"day": day, "last_timestamp": state.timestamp}, separators=(",", ":"))
+        return result, 0, trader_data
+
+    def make_targets(self, day: int, depths: Dict[str, OrderDepth]) -> Dict[str, int]:
+        targets: Dict[str, int] = {}
+        for product, raw_target in self.BASE_TARGETS.items():
+            target = int(round(raw_target * self.SCALE))
+            target = max(-self.CAP, min(self.CAP, target))
+            targets[product] = target
+
+        targets["ROBOT_DISHES"] = self.ROBOT_DISHES_BY_DAY.get(day, 100)
+        for product, target in self.PEBBLES_PAIR_TARGETS.items():
+            targets[product] = target
+        return targets
+
+    def rebalance(self, product: str, target: int, state: TradingState) -> List[Order]:
+        depth = state.order_depths.get(product)
+        if depth is None or not depth.buy_orders or not depth.sell_orders:
+            return []
+        position = state.position.get(product, 0)
+        delta = target - position
+        if delta == 0:
+            return []
+
+        best_bid = max(depth.buy_orders)
+        best_ask = min(depth.sell_orders)
+        if delta > 0:
+            quantity = min(delta, self.MAX_ORDER, abs(depth.sell_orders[best_ask]))
+            return [Order(product, best_ask, quantity)] if quantity > 0 else []
+        quantity = min(-delta, self.MAX_ORDER, abs(depth.buy_orders[best_bid]))
+        return [Order(product, best_bid, -quantity)] if quantity > 0 else []
+
+    def load_state(self, trader_data: str) -> Dict:
+        if not trader_data:
+            return {}
+        try:
+            parsed = json.loads(trader_data)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}

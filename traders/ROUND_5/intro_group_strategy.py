@@ -1,0 +1,396 @@
+from datamodel import OrderDepth, TradingState, Order
+from typing import Dict, List, Optional, Tuple
+import json
+import math
+
+
+class Trader:
+    """Round 5 alphas:
+
+    1. PEBBLES basket: sum of all 5 pebble mids ≈ 50,000 to within ±2 most ticks.
+       Trade XL against the constraint-implied fair (other 4 don't move enough
+       to be worth trading on the same residual).
+    2. SNACKPACK pairs: CHOCOLATE+VANILLA ≈ 19,940 (std 76) and
+       PISTACHIO+RASPBERRY ≈ 19,574 (std 180). Each leg has a fair implied
+       by its partner.
+    3. ROBOT_DISHES: lag-1 return autocorrelation -0.29 on day 4 (ret std 27)
+       vs ~0 on calmer days. Volatility-gated take auto-fires on day 4.
+    4. ROBOT_IRONING: lag-1 reversion -0.08 to -0.16 every day (consistent,
+       not day-specific). Magnitude too small to cross the spread; passive
+       inside-spread quote leaning on the reversion side.
+    5. ROBOT_LAUNDRY: market-trade fade. Big trades (qty ≥ 3) showed signed
+       5-tick continuation of -2.93 / +1.73 / -3.31 across days 2/3/4.
+       Passive-only inside-spread quote on the fade side.
+    6. ROBOT_MOPPING: market-trade follow. Big trades showed +4.01 / +1.77 /
+       +2.04. Same inside-spread quote on the follow side.
+
+    No ROBOT basket constraint or cointegrated pair exists: sum-of-five std
+    is 807 vs PEBBLES' 2.8, and the tightest pair (LAUNDRY-VACUUMING std 382)
+    has zero diff_ac1. ROBOT_VACUUMING showed no edge so it stays untraded.
+    """
+
+    LIMIT = 250
+    MAX_ORDER = 20
+
+    PEBBLES = ("PEBBLES_L", "PEBBLES_M", "PEBBLES_S", "PEBBLES_XL", "PEBBLES_XS")
+    PEBBLES_TRADE = ("PEBBLES_XL",)
+    PEBBLES_SUM = 50000.0
+    PEBBLES_TAKE_EDGE = 4.0
+    PEBBLES_QUOTE_EDGE = 6.0
+
+    SNACK_PAIRS = (
+        ("SNACKPACK_CHOCOLATE", "SNACKPACK_VANILLA", 19940.67),
+        ("SNACKPACK_PISTACHIO", "SNACKPACK_RASPBERRY", 19573.66),
+    )
+    SNACK_TAKE_EDGE = 80.0
+    SNACK_QUOTE_EDGE = 110.0
+
+    # STRAWBERRY is the 5th SNACKPACK leg — not part of the two pair-sum
+    # constraints. A 4-leg OLS regression gives residual std 163 with
+    # diff_ac1 -0.33 every day, comparable to the other SNACKPACK pair edges.
+    # Cross-family pair search found nothing tradeable (max cross-family
+    # dev_corr was -0.032 and was driven by ROBOT_DISHES day-4 reversion that
+    # we already capture directly).
+    STRAW_BASKET_PRODUCT = "SNACKPACK_STRAWBERRY"
+    STRAW_BASKET_COEFS = {
+        "SNACKPACK_CHOCOLATE": -1.8195,
+        "SNACKPACK_PISTACHIO": -1.0093,
+        "SNACKPACK_RASPBERRY": -1.3033,
+        "SNACKPACK_VANILLA": -1.6200,
+    }
+    STRAW_BASKET_INTERCEPT = 67692.39
+    STRAW_TAKE_EDGE = 110.0
+    STRAW_QUOTE_EDGE = 150.0
+
+    DISHES = "ROBOT_DISHES"
+    DISHES_REVERSION = 0.30
+    DISHES_VOL_THRESHOLD = 7.0
+    DISHES_TAKE_EDGE = 5.0
+    DISHES_VOL_DECAY = 0.93
+
+    # Inside-spread passive MM gated by a directional signal. Inventory cap is
+    # smaller than self.LIMIT to leave headroom for the higher-edge alphas.
+    PASSIVE_QTY = 3
+    PASSIVE_INVENTORY = 12
+    PASSIVE_MIN_SPREAD = 2
+
+    # Tuned per-product to match the signal magnitude observed in the data.
+    # IRONING signal = -reversion * lag1_move; threshold = magnitude required
+    # to act (in price units). LAUNDRY/MOPPING signal = decayed sum of
+    # signed market-trade prints, weighted by quantity (capped at 3).
+    IRONING = "ROBOT_IRONING"
+    IRONING_REVERSION = 0.15
+    IRONING_THRESHOLD = 1.5
+
+    # ROBOT_LAUNDRY shows clean trade-flow fade in both data analysis and live
+    # backtest (+19k over 3 days). ROBOT_MOPPING shows positive trade-flow
+    # continuation in the data, but a passive maker can't capture it: the
+    # only fills on the follow side come from phantom prints in the opposite
+    # direction (-37k as follow, -5k as fade). VACUUMING has no edge.
+    LAUNDRY = "ROBOT_LAUNDRY"
+    FLOW_DECAY = 0.88
+    FLOW_THRESHOLD = 0.6
+    FLOW_FADE_WEIGHT = -0.50
+
+    @staticmethod
+    def best_prices(depth: OrderDepth) -> Optional[Tuple[int, int, int, int]]:
+        if not depth.buy_orders or not depth.sell_orders:
+            return None
+        best_bid = max(depth.buy_orders)
+        best_ask = min(depth.sell_orders)
+        if best_bid >= best_ask:
+            return None
+        return best_bid, depth.buy_orders[best_bid], best_ask, depth.sell_orders[best_ask]
+
+    @staticmethod
+    def load_state(raw: str) -> Dict:
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def take_against_fair(
+        self,
+        product: str,
+        depth: OrderDepth,
+        fair: float,
+        position: int,
+        take_edge: float,
+        quote_edge: float,
+    ) -> List[Order]:
+        prices = self.best_prices(depth)
+        if prices is None:
+            return []
+        best_bid, bid_size, best_ask, ask_size = prices
+        orders: List[Order] = []
+        buy_room = self.LIMIT - position
+        sell_room = self.LIMIT + position
+
+        if buy_room > 0 and best_ask <= fair - take_edge:
+            qty = min(buy_room, abs(ask_size), self.MAX_ORDER)
+            if qty > 0:
+                orders.append(Order(product, best_ask, qty))
+                buy_room -= qty
+
+        if sell_room > 0 and best_bid >= fair + take_edge:
+            qty = min(sell_room, bid_size, self.MAX_ORDER)
+            if qty > 0:
+                orders.append(Order(product, best_bid, -qty))
+                sell_room -= qty
+
+        bid_price = int(math.floor(fair - quote_edge))
+        ask_price = int(math.ceil(fair + quote_edge))
+        if buy_room > 0 and bid_price < best_ask and bid_price >= best_bid:
+            orders.append(Order(product, bid_price, min(buy_room, self.MAX_ORDER)))
+        if sell_room > 0 and ask_price > best_bid and ask_price <= best_ask:
+            orders.append(Order(product, ask_price, -min(sell_room, self.MAX_ORDER)))
+
+        return orders
+
+    def quote_inside_spread(
+        self,
+        product: str,
+        depth: OrderDepth,
+        position: int,
+        signal: float,
+        threshold: float,
+    ) -> List[Order]:
+        """Place ONE passive order at best_bid+1 / best_ask-1 on the side the
+        signal predicts. Skip if the signal is below the threshold or the book
+        is already too tight to step inside."""
+        prices = self.best_prices(depth)
+        if prices is None:
+            return []
+        best_bid, _, best_ask, _ = prices
+        if best_ask - best_bid < self.PASSIVE_MIN_SPREAD:
+            return []
+        if abs(signal) < threshold:
+            return []
+        cap = self.PASSIVE_INVENTORY
+        if signal > 0 and position < cap:
+            qty = min(self.PASSIVE_QTY, cap - position)
+            return [Order(product, best_bid + 1, qty)]
+        if signal < 0 and position > -cap:
+            qty = min(self.PASSIVE_QTY, cap + position)
+            return [Order(product, best_ask - 1, -qty)]
+        return []
+
+    def trade_pebbles(self, state: TradingState, mids: Dict[str, float]) -> Dict[str, List[Order]]:
+        if not all(p in mids for p in self.PEBBLES):
+            return {}
+        result: Dict[str, List[Order]] = {}
+        for product in self.PEBBLES_TRADE:
+            others_mid = sum(mids[p] for p in self.PEBBLES if p != product)
+            implied = self.PEBBLES_SUM - others_mid
+            position = state.position.get(product, 0)
+            depth = state.order_depths[product]
+            orders = self.take_against_fair(
+                product,
+                depth,
+                implied,
+                position,
+                self.PEBBLES_TAKE_EDGE,
+                self.PEBBLES_QUOTE_EDGE,
+            )
+            if orders:
+                result[product] = orders
+        return result
+
+    def trade_snack_pairs(self, state: TradingState, mids: Dict[str, float]) -> Dict[str, List[Order]]:
+        result: Dict[str, List[Order]] = {}
+        for left, right, pair_sum in self.SNACK_PAIRS:
+            if left not in mids or right not in mids:
+                continue
+            for product, partner in ((left, right), (right, left)):
+                fair = pair_sum - mids[partner]
+                position = state.position.get(product, 0)
+                depth = state.order_depths[product]
+                orders = self.take_against_fair(
+                    product,
+                    depth,
+                    fair,
+                    position,
+                    self.SNACK_TAKE_EDGE,
+                    self.SNACK_QUOTE_EDGE,
+                )
+                if orders:
+                    result[product] = orders
+        return result
+
+    def trade_straw_basket(self, state: TradingState, mids: Dict[str, float]) -> Dict[str, List[Order]]:
+        product = self.STRAW_BASKET_PRODUCT
+        if product not in mids:
+            return {}
+        if not all(p in mids for p in self.STRAW_BASKET_COEFS):
+            return {}
+        fair = self.STRAW_BASKET_INTERCEPT
+        for leg, coef in self.STRAW_BASKET_COEFS.items():
+            fair += coef * mids[leg]
+        position = state.position.get(product, 0)
+        depth = state.order_depths[product]
+        orders = self.take_against_fair(
+            product,
+            depth,
+            fair,
+            position,
+            self.STRAW_TAKE_EDGE,
+            self.STRAW_QUOTE_EDGE,
+        )
+        return {product: orders} if orders else {}
+
+    def trade_robot_dishes(
+        self,
+        state: TradingState,
+        mids: Dict[str, float],
+        memory: Dict,
+    ) -> Tuple[List[Order], Dict]:
+        product = self.DISHES
+        if product not in mids:
+            return [], {"prev_mid": memory.get("prev_mid"), "vol": memory.get("vol", 0.0)}
+
+        mid = mids[product]
+        prev_mid = memory.get("prev_mid")
+        prev_vol = float(memory.get("vol", 0.0))
+
+        if prev_mid is None:
+            return [], {"prev_mid": mid, "vol": prev_vol}
+
+        move = mid - prev_mid
+        vol = self.DISHES_VOL_DECAY * prev_vol + (1 - self.DISHES_VOL_DECAY) * abs(move)
+        next_state = {"prev_mid": mid, "vol": vol}
+
+        if vol < self.DISHES_VOL_THRESHOLD or abs(move) < self.DISHES_VOL_THRESHOLD:
+            return [], next_state
+
+        fair = mid - self.DISHES_REVERSION * move
+        position = state.position.get(product, 0)
+        depth = state.order_depths[product]
+        orders = self.take_against_fair(
+            product,
+            depth,
+            fair,
+            position,
+            self.DISHES_TAKE_EDGE,
+            self.DISHES_TAKE_EDGE + 3.0,
+        )
+        return orders, next_state
+
+    def trade_robot_ironing(
+        self,
+        state: TradingState,
+        mids: Dict[str, float],
+        memory: Dict,
+    ) -> Tuple[List[Order], Dict]:
+        product = self.IRONING
+        if product not in mids:
+            return [], {"prev_mid": memory.get("prev_mid")}
+        mid = mids[product]
+        prev_mid = memory.get("prev_mid")
+        next_state = {"prev_mid": mid}
+        if prev_mid is None:
+            return [], next_state
+        move = mid - prev_mid
+        # Negative reversion: a +move predicts a short, a -move predicts a long.
+        signal = -self.IRONING_REVERSION * move
+        position = state.position.get(product, 0)
+        orders = self.quote_inside_spread(
+            product,
+            state.order_depths[product],
+            position,
+            signal,
+            self.IRONING_THRESHOLD,
+        )
+        return orders, next_state
+
+    def update_flow_signal(
+        self,
+        product: str,
+        mid: float,
+        market_trades: List,
+        prev_signal: float,
+        weight: float,
+    ) -> float:
+        signal = self.FLOW_DECAY * prev_signal
+        for trade in market_trades:
+            side = 1 if trade.price > mid else -1 if trade.price < mid else 0
+            signal += weight * side * min(3, trade.quantity)
+        return signal
+
+    def trade_robot_flow(
+        self,
+        state: TradingState,
+        mids: Dict[str, float],
+        memory: Dict,
+    ) -> Tuple[Dict[str, List[Order]], Dict]:
+        result: Dict[str, List[Order]] = {}
+        next_signals: Dict[str, float] = {}
+        configs = (
+            (self.LAUNDRY, self.FLOW_FADE_WEIGHT),
+        )
+        for product, weight in configs:
+            if product not in mids:
+                continue
+            mid = mids[product]
+            prev_signal = float(memory.get(product, 0.0))
+            signal = self.update_flow_signal(
+                product,
+                mid,
+                state.market_trades.get(product, []),
+                prev_signal,
+                weight,
+            )
+            next_signals[product] = signal
+            position = state.position.get(product, 0)
+            orders = self.quote_inside_spread(
+                product,
+                state.order_depths[product],
+                position,
+                signal,
+                self.FLOW_THRESHOLD,
+            )
+            if orders:
+                result[product] = orders
+        return result, next_signals
+
+    def run(self, state: TradingState):
+        memory = self.load_state(state.traderData)
+        mids: Dict[str, float] = {}
+        for product, depth in state.order_depths.items():
+            prices = self.best_prices(depth)
+            if prices is None:
+                continue
+            best_bid, _, best_ask, _ = prices
+            mids[product] = (best_bid + best_ask) / 2
+
+        result: Dict[str, List[Order]] = {}
+        result.update(self.trade_pebbles(state, mids))
+        result.update(self.trade_snack_pairs(state, mids))
+        result.update(self.trade_straw_basket(state, mids))
+
+        dishes_orders, dishes_state = self.trade_robot_dishes(
+            state, mids, memory.get("dishes", {})
+        )
+        if dishes_orders:
+            result[self.DISHES] = dishes_orders
+
+        ironing_orders, ironing_state = self.trade_robot_ironing(
+            state, mids, memory.get("ironing", {})
+        )
+        if ironing_orders:
+            result[self.IRONING] = ironing_orders
+
+        flow_orders, flow_state = self.trade_robot_flow(
+            state, mids, memory.get("flow", {})
+        )
+        for product, orders in flow_orders.items():
+            result.setdefault(product, []).extend(orders)
+
+        next_memory = {
+            "dishes": dishes_state,
+            "ironing": ironing_state,
+            "flow": flow_state,
+        }
+        return result, 0, json.dumps(next_memory, separators=(",", ":"))

@@ -1,0 +1,23 @@
+agent2 alpha notes (Round 4)
+
+Strongest deployed alpha:
+- Wing-bot flow -> VEV_5200 direction.
+- Signal source products: VEV_5300, VEV_5400, VEV_5500.
+- Signal bots:
+  - Mark 22 sells => bearish VEV_5200 (h=100 mean about -0.7 to -0.8).
+  - Mark 01 buys  => bullish VEV_5200 (h=100 mean about +0.7 to +0.8).
+  - Mark 14 buys  => small positive add-on.
+
+Implementation:
+- Keep trader_HYPER base stack unchanged.
+- Add store["wing5200_dir"] TTL signal from wing market_trades score.
+- Apply edge overlay only in trade_smile_atm for product VEV_5200:
+  edge += 12.0 * wing5200_dir, threshold 8, TTL 1600.
+
+Backtest delta vs trader_HYPER:
+- +730.0 total PnL across d1/d2/d3
+- improvement isolated to VEV_5200; rest of stack unchanged.
+
+Other mined patterns (not yet better than current stack):
+- VEV_4000 Mark14/Mark38 single-trade lead-lag is strong, but aggregate timestamp score did not improve PnL.
+- Including own_trades in wing score (union tape) did not outperform market-only in this setup.

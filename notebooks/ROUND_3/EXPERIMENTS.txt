@@ -1,0 +1,205 @@
+EXPERIMENTS findings for ROUND_3 trader_EXPERIMENTS.py
+=========================================================
+
+Final locked score
+------------------
+
+Best kept experiment:
+
+  trader_EXPERIMENTS.py total PnL: 254380.5
+  Average day PnL:              84793.5
+  Min day PnL:                  75620.5
+  Days:                         76301.5 / 102458.5 / 75620.5
+  Trades:                       5927
+  Bot trades:                   51
+
+Comparison baseline:
+
+  trader_final_3.py total PnL:  249238.5
+
+Net improvement over trader_final_3.py:
+
+  +5142.0 total PnL
+
+Per-product final deltas vs trader_final_3.py
+---------------------------------------------
+
+  HYDROGEL_PACK:            +582.0
+  VELVETFRUIT_EXTRACT:        +0.0
+  VEV_4000:                   +0.0
+  VEV_4500:                   +0.0
+  VEV_5000:                +3089.0
+  VEV_5100:                 +778.5
+  VEV_5200:                 +449.0
+  VEV_5300:                   +0.0
+  VEV_5400:                 +243.5
+  VEV_5500:                   +0.0
+  VEV_6000:                   +0.0
+  VEV_6500:                   +0.0
+
+What survived
+-------------
+
+1. HYDRO raw-mid fair
+
+   Raw top-of-book mid beat wall-mid for HYDRO in this setup.
+   Kept the historical anchor around 9991, fast/slow EMA blend, and smaller
+   take size from the old smile_surface-style hydro.
+
+   Result:
+
+     HYDROGEL_PACK: 97696.0 vs 97114.0
+     Gain: +582.0
+
+2. ATM residual one-tick mean reversion
+
+   This was the main new edge.
+
+   Signal:
+
+     residual_move = option_mid_change - delta * velvet_mid_change
+
+   If the option jumps more than the underlying explains, fade that jump.
+   This directly exploits the one-tick option quote artifact / negative
+   autocorrelation from the hedgehogs writeup and our ROUND_3 data.
+
+   Kept strengths:
+
+     VEV_5000: delta 0.90, strength 1.20
+     VEV_5100: BS delta, strength 0.75
+     VEV_5200: BS delta, strength 0.75
+
+   Result:
+
+     VEV_5000: 12038.5 vs 8949.5
+     VEV_5100:  5119.0 vs 4340.5
+     VEV_5200:  2541.5 vs 2092.5
+
+3. Bigger VEV_5000 sizing only
+
+   VEV_5000 accepted more size well, probably because the residual fade has
+   more room and better fill quality there.
+
+   Kept:
+
+     take size 12
+     quote size 8
+
+   Rejected:
+
+     take size 16 / quote size 10, because it reduced total PnL.
+
+4. Small wing residual fade on VEV_5400 / VEV_5500
+
+   The same one-tick residual fade was tested on wings.
+
+   Kept:
+
+     VEV_5400 delta 0.20, strength 0.60
+     VEV_5500 delta 0.08, strength 0.50
+
+   Real gain appeared on VEV_5400:
+
+     VEV_5400: 7311.0 vs 7067.5
+     Gain: +243.5
+
+   VEV_5500 stayed flat but did not hurt.
+
+5. VEV_4000 tape tilt into VELVET fair
+
+   VEV_4000 bot trades had weak directional information for future VELVET.
+   Added a small temporary tilt to VELVET fair and ATM spot edge.
+
+   Kept:
+
+     +1.0 * v4_dir
+
+   Note:
+
+     +1.5 tested about the same, so kept +1.0 for less live-risk.
+
+What died
+---------
+
+1. Basket bounce / stale basket overlay
+
+   Offline data showed basket events had positive next-tick option drift,
+   especially around VEV_5200 and VEV_5300. In backtest execution, acting
+   after observing the basket was too late or got bad queue/fill behavior.
+
+   Verdict:
+
+     Rejected.
+
+2. Far-wing paid orders on VEV_6000 / VEV_6500
+
+   These books are basically always:
+
+     bid 0, ask 1
+
+   Paying 1 cannot be sold profitably later in the data. Posting bid 0 is
+   harmless but usually sits behind existing queue, so it gets no fills.
+
+   Verdict:
+
+     Keep zero-bid absorber only; do not pay 1.
+
+3. Top-book imbalance tilt
+
+   Data said bid/ask volume imbalance predicted next mid move. Backtest said
+   the execution got picked off, especially on VELVET, VEV_5100, and VEV_5000.
+
+   Verdict:
+
+     Rejected.
+
+4. Wall-mid pull
+
+   Data said wall_mid - top_mid predicted next tick. Backtest said not
+   tradable after spread/queue costs.
+
+   Verdict:
+
+     Rejected.
+
+5. ATM fly / vertical spread reversion
+
+   The notebook confirmed strong negative autocorrelation in ATM vertical
+   spread changes. Direct fair-value nudges using fly or 5100/5200 vertical
+   residuals looked tempting but reduced or barely matched PnL in execution.
+
+   Verdict:
+
+     Rejected from final experiment.
+
+6. Bigger VEV_5100 / VEV_5200 sizing
+
+   Scaling both to size 8 increased trades but reduced PnL, especially on
+   VEV_5100. Keep their original nimble size 6.
+
+   Verdict:
+
+     Rejected.
+
+Testing hygiene
+---------------
+
+Do not use global:
+
+  uv run rank --clean
+
+For this experiment, only remove this trader's run cache:
+
+  find runs -maxdepth 1 -type d -name 'rank_round3_trader_EXPERIMENTS*' -exec rm -rf {} +
+
+Then rank:
+
+  uv run rank --round 3 --trader trader_EXPERIMENTS.py --trader trader_final_3.py --show-per-product
+
+Cave summary
+------------
+
+Most money came from not believing option mids for one tick.
+Fade option residual jumps after removing VELVET movement.
+Only scale the strike where rank says scale: VEV_5000.
+Do not chase pretty notebook signals unless rank confirms execution PnL.

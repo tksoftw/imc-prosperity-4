@@ -1,0 +1,167 @@
+from datamodel import OrderDepth, UserId, TradingState, Order
+from typing import List, Dict
+import statistics
+
+class Trader:
+    """
+    V2: Improved market maker with trend detection and per-product optimization.
+
+    Focus areas:
+    1. Detect trending vs mean-reversion behavior
+    2. Scale bid/ask offsets based on momentum
+    3. Per-product fine-tuning of parameters
+    """
+
+    # Product families with their specific parameters
+    FAMILIES = {
+        'GALAXY_SOUNDS': {
+            'products': ['GALAXY_SOUNDS_BLACK_HOLES', 'GALAXY_SOUNDS_DARK_MATTER',
+                        'GALAXY_SOUNDS_PLANETARY_RINGS', 'GALAXY_SOUNDS_SOLAR_FLAMES', 'GALAXY_SOUNDS_SOLAR_WINDS'],
+            'base_bid_offset': -3, 'base_ask_offset': 3, 'max_pos': 80, 'vol_scale': 0.9
+        },
+        'MICROCHIP': {
+            'products': ['MICROCHIP_CIRCLE', 'MICROCHIP_OVAL', 'MICROCHIP_RECTANGLE',
+                        'MICROCHIP_SQUARE', 'MICROCHIP_TRIANGLE'],
+            'base_bid_offset': -2, 'base_ask_offset': 2, 'max_pos': 50, 'vol_scale': 0.8
+        },
+        'OXYGEN_SHAKE': {
+            'products': ['OXYGEN_SHAKE_CHOCOLATE', 'OXYGEN_SHAKE_EVENING_BREATH',
+                        'OXYGEN_SHAKE_GARLIC', 'OXYGEN_SHAKE_MINT', 'OXYGEN_SHAKE_MORNING_BREATH'],
+            'base_bid_offset': -3, 'base_ask_offset': 3, 'max_pos': 80, 'vol_scale': 0.9
+        },
+        'PANEL': {
+            'products': ['PANEL_1X2', 'PANEL_1X4', 'PANEL_2X2', 'PANEL_2X4', 'PANEL_4X4'],
+            'base_bid_offset': -2, 'base_ask_offset': 2, 'max_pos': 60, 'vol_scale': 0.8
+        },
+        'PEBBLES': {
+            'products': ['PEBBLES_L', 'PEBBLES_M', 'PEBBLES_S', 'PEBBLES_XL', 'PEBBLES_XS'],
+            'base_bid_offset': -3, 'base_ask_offset': 3, 'max_pos': 70, 'vol_scale': 0.8
+        },
+        'ROBOT': {
+            'products': ['ROBOT_DISHES', 'ROBOT_IRONING', 'ROBOT_LAUNDRY',
+                        'ROBOT_MOPPING', 'ROBOT_VACUUMING'],
+            'base_bid_offset': -2, 'base_ask_offset': 2, 'max_pos': 40, 'vol_scale': 0.5
+        },
+        'SLEEP_POD': {
+            'products': ['SLEEP_POD_COTTON', 'SLEEP_POD_LAMB_WOOL', 'SLEEP_POD_NYLON',
+                        'SLEEP_POD_POLYESTER', 'SLEEP_POD_SUEDE'],
+            'base_bid_offset': -3, 'base_ask_offset': 3, 'max_pos': 50, 'vol_scale': 0.7
+        },
+        'SNACKPACK': {
+            'products': ['SNACKPACK_CHOCOLATE', 'SNACKPACK_PISTACHIO', 'SNACKPACK_RASPBERRY',
+                        'SNACKPACK_STRAWBERRY', 'SNACKPACK_VANILLA'],
+            'base_bid_offset': -2, 'base_ask_offset': 2, 'max_pos': 80, 'vol_scale': 1.0
+        },
+        'TRANSLATOR': {
+            'products': ['TRANSLATOR_ASTRO_BLACK', 'TRANSLATOR_ECLIPSE_CHARCOAL',
+                        'TRANSLATOR_GRAPHITE_MIST', 'TRANSLATOR_SPACE_GRAY', 'TRANSLATOR_VOID_BLUE'],
+            'base_bid_offset': -2, 'base_ask_offset': 2, 'max_pos': 50, 'vol_scale': 0.7
+        },
+        'UV_VISOR': {
+            'products': ['UV_VISOR_AMBER', 'UV_VISOR_MAGENTA', 'UV_VISOR_ORANGE',
+                        'UV_VISOR_RED', 'UV_VISOR_YELLOW'],
+            'base_bid_offset': -3, 'base_ask_offset': 3, 'max_pos': 70, 'vol_scale': 0.8
+        },
+    }
+
+    # Per-product overrides for known winners/losers
+    PRODUCT_OVERRIDES = {
+        'SLEEP_POD_LAMB_WOOL': {'bid_offset_mult': 0.8, 'ask_offset_mult': 1.2},  # Losing - widen ask
+        'SLEEP_POD_NYLON': {'bid_offset_mult': 0.8, 'ask_offset_mult': 1.2},        # Losing - widen ask
+        'SNACKPACK_CHOCOLATE': {'bid_offset_mult': 1.0, 'ask_offset_mult': 1.5},   # Losing - widen ask more
+        'SNACKPACK_PISTACHIO': {'bid_offset_mult': 1.0, 'ask_offset_mult': 1.5},   # Losing - widen ask more
+        'TRANSLATOR_ASTRO_BLACK': {'bid_offset_mult': 0.7, 'ask_offset_mult': 1.3}, # Losing - more selective
+        'TRANSLATOR_SPACE_GRAY': {'bid_offset_mult': 0.7, 'ask_offset_mult': 1.3},  # Losing - more selective
+        'UV_VISOR_AMBER': {'bid_offset_mult': 0.7, 'ask_offset_mult': 1.3},        # Losing - more selective
+        'UV_VISOR_ORANGE': {'bid_offset_mult': 0.9, 'ask_offset_mult': 1.2},       # Losing - be careful
+    }
+
+    def __init__(self):
+        self.position = {}
+        self.mid_prices = {}
+
+    def bid(self):
+        return 15
+
+    def get_family_and_params(self, product: str) -> tuple:
+        """Return (family_name, family_params) for a product."""
+        for family_name, family_data in self.FAMILIES.items():
+            if product in family_data['products']:
+                return family_name, family_data
+        return None, None
+
+    def run(self, state: TradingState):
+        result = {}
+        conversions = 0
+
+        # Initialize positions
+        for product in state.order_depths.keys():
+            if product not in self.position:
+                self.position[product] = 0
+                self.mid_prices[product] = []
+
+        for product in state.order_depths.keys():
+            order_depth = state.order_depths[product]
+            family_name, family_params = self.get_family_and_params(product)
+
+            if not family_params:
+                continue
+
+            orders = []
+
+            # Calculate mid price
+            best_bid = max(order_depth.buy_orders.keys()) if order_depth.buy_orders else 10000
+            best_ask = min(order_depth.sell_orders.keys()) if order_depth.sell_orders else 10000
+            mid = (best_bid + best_ask) / 2 if order_depth.buy_orders and order_depth.sell_orders else best_bid if order_depth.buy_orders else best_ask
+
+            # Track mid price history for momentum
+            self.mid_prices[product].append(mid)
+            if len(self.mid_prices[product]) > 10:
+                self.mid_prices[product].pop(0)
+
+            # Detect trend
+            trend = 0
+            if len(self.mid_prices[product]) >= 3:
+                recent_avg = sum(self.mid_prices[product][-3:]) / 3
+                older_avg = sum(self.mid_prices[product][:3]) / 3
+                trend = 1 if recent_avg > older_avg else (-1 if recent_avg < older_avg else 0)
+
+            # Get base offsets
+            bid_offset = family_params['base_bid_offset']
+            ask_offset = family_params['base_ask_offset']
+
+            # Apply product-specific overrides
+            if product in self.PRODUCT_OVERRIDES:
+                override = self.PRODUCT_OVERRIDES[product]
+                bid_offset = int(bid_offset * override.get('bid_offset_mult', 1.0))
+                ask_offset = int(ask_offset * override.get('ask_offset_mult', 1.0))
+
+            # Scale offsets based on trend (reduce offset when trending = more aggressive)
+            if trend > 0:
+                bid_offset = max(bid_offset - 1, -5)  # More aggressive on bid side
+            elif trend < 0:
+                ask_offset = min(ask_offset + 1, 5)   # More aggressive on ask side
+
+            bid_price = int(mid) + bid_offset
+            ask_price = int(mid) + ask_offset
+
+            # Calculate volumes
+            market_bid_vol = list(order_depth.buy_orders.values())[0] if order_depth.buy_orders else 10
+            market_ask_vol = list(order_depth.sell_orders.values())[0] if order_depth.sell_orders else 10
+
+            bid_vol = max(1, int(market_bid_vol * family_params['vol_scale']))
+            ask_vol = max(1, int(market_ask_vol * family_params['vol_scale']))
+
+            current_pos = self.position[product]
+            max_pos = family_params['max_pos']
+
+            # Place orders
+            if current_pos < max_pos:
+                orders.append(Order(product, bid_price, bid_vol))
+
+            if current_pos > -max_pos:
+                orders.append(Order(product, ask_price, ask_vol))
+
+            result[product] = orders
+
+        return result, conversions, ""

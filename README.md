@@ -142,6 +142,17 @@ means the validation day delivered only 67% of the train-day average (33% drop),
 > use `--report-only-economic` for a stats-only view (no risk table)
 
 
+### [compile trader](tools/compile_trader.py)
+
+`uv run compile --trader trader_X.py`
+
+Inlines a trader's local `ROUND_N` (and cross-round) imports into one self-contained submission file under `traders/ROUND_N/compiled/`.
+
+> also: `--all` to compile every trader in the round that has local imports (self-contained traders are skipped)
+
+> also: `--round N` to override the round (defaults to the highest `traders/ROUND_*/` present)
+
+
 ### [round data lab](tools/round_data_lab/README.md)
 `uv run gendata`
 
@@ -159,7 +170,7 @@ means the validation day delivered only 67% of the train-day average (33% drop),
 <summary>Round 2</summary>
 
 ### [allocation optimizer](tools/allocation_webviz/)
-`uvicorn tools.allocation_webviz.server:app --reload --port 8001`
+`uv run uvicorn tools.allocation_webviz.server:app --reload --port 8001`
 
 </details>
 
@@ -206,7 +217,7 @@ You'll see a green "WSL" indicator in the bottom-left once connected.
 2nd overall, very detailed.
 
 ### [CarterT27/imc-prosperity-3](https://github.com/CarterT27/imc-prosperity-3)
-9th overall, 2nd US. Companion [Prosperity 3 Sauce doc](https://docs.google.com/document/d/1oYBRozQtJ6HgfmLOf4HesRJFKZLATWrYdkxZDLT47cU/edit?tab=t.0).
+9th overall, 2nd US.
 
 ### [Rust Backtester (fork)](https://github.com/tksoftw/prosperity_rust_backtester)
 Source for the `rust_backtester` binary used by `rank_traders.py`.

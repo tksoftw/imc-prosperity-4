@@ -1,0 +1,175 @@
+from datamodel import OrderDepth, TradingState, Order
+from typing import Dict, List
+
+
+class Trader:
+    GROUPS = {
+        "GALAXY_SOUNDS": ["GALAXY_SOUNDS_PLANETARY_RINGS"],
+        "MICROCHIP": ["MICROCHIP_TRIANGLE"],
+        "OXYGEN_SHAKE": ["OXYGEN_SHAKE_CHOCOLATE", "OXYGEN_SHAKE_MINT"],
+        "PANEL": ["PANEL_1X2", "PANEL_1X4", "PANEL_2X4"],
+        "PEBBLES": ["PEBBLES_L", "PEBBLES_M", "PEBBLES_S"],
+        "ROBOT": ["ROBOT_DISHES", "ROBOT_LAUNDRY"],
+        "SLEEP_POD": ["SLEEP_POD_LAMB_WOOL", "SLEEP_POD_SUEDE"],
+        "SNACKPACK": ["SNACKPACK_CHOCOLATE", "SNACKPACK_RASPBERRY", "SNACKPACK_VANILLA"],
+        "TRANSLATOR": ["TRANSLATOR_ASTRO_BLACK", "TRANSLATOR_ECLIPSE_CHARCOAL"],
+        "UV_VISOR": ["UV_VISOR_AMBER", "UV_VISOR_MAGENTA"],
+    }
+
+    FULL_GROUPS = {
+        "GALAXY_SOUNDS": [
+            "GALAXY_SOUNDS_BLACK_HOLES",
+            "GALAXY_SOUNDS_DARK_MATTER",
+            "GALAXY_SOUNDS_PLANETARY_RINGS",
+            "GALAXY_SOUNDS_SOLAR_FLAMES",
+            "GALAXY_SOUNDS_SOLAR_WINDS",
+        ],
+        "MICROCHIP": [
+            "MICROCHIP_CIRCLE",
+            "MICROCHIP_OVAL",
+            "MICROCHIP_RECTANGLE",
+            "MICROCHIP_SQUARE",
+            "MICROCHIP_TRIANGLE",
+        ],
+        "OXYGEN_SHAKE": [
+            "OXYGEN_SHAKE_CHOCOLATE",
+            "OXYGEN_SHAKE_EVENING_BREATH",
+            "OXYGEN_SHAKE_GARLIC",
+            "OXYGEN_SHAKE_MINT",
+            "OXYGEN_SHAKE_MORNING_BREATH",
+        ],
+        "PANEL": ["PANEL_1X2", "PANEL_1X4", "PANEL_2X2", "PANEL_2X4", "PANEL_4X4"],
+        "PEBBLES": ["PEBBLES_L", "PEBBLES_M", "PEBBLES_S", "PEBBLES_XL", "PEBBLES_XS"],
+        "ROBOT": ["ROBOT_DISHES", "ROBOT_IRONING", "ROBOT_LAUNDRY", "ROBOT_MOPPING", "ROBOT_VACUUMING"],
+        "SLEEP_POD": [
+            "SLEEP_POD_COTTON",
+            "SLEEP_POD_LAMB_WOOL",
+            "SLEEP_POD_NYLON",
+            "SLEEP_POD_POLYESTER",
+            "SLEEP_POD_SUEDE",
+        ],
+        "SNACKPACK": [
+            "SNACKPACK_CHOCOLATE",
+            "SNACKPACK_PISTACHIO",
+            "SNACKPACK_RASPBERRY",
+            "SNACKPACK_STRAWBERRY",
+            "SNACKPACK_VANILLA",
+        ],
+        "TRANSLATOR": [
+            "TRANSLATOR_ASTRO_BLACK",
+            "TRANSLATOR_ECLIPSE_CHARCOAL",
+            "TRANSLATOR_GRAPHITE_MIST",
+            "TRANSLATOR_SPACE_GRAY",
+            "TRANSLATOR_VOID_BLUE",
+        ],
+        "UV_VISOR": ["UV_VISOR_AMBER", "UV_VISOR_MAGENTA", "UV_VISOR_ORANGE", "UV_VISOR_RED", "UV_VISOR_YELLOW"],
+    }
+
+    PRODUCT_GROUP = {product: group for group, products in FULL_GROUPS.items() for product in products}
+    ENABLED = {product for products in GROUPS.values() for product in products}
+
+    # +1 biases with rich-vs-family continuation; -1 biases toward relative reversion.
+    GROUP_DIRECTION = {
+        "GALAXY_SOUNDS": 1,
+        "MICROCHIP": -1,
+        "OXYGEN_SHAKE": -1,
+        "PANEL": 1,
+        "PEBBLES": -1,
+        "ROBOT": -1,
+        "SLEEP_POD": -1,
+        "SNACKPACK": -1,
+        "TRANSLATOR": -1,
+        "UV_VISOR": 1,
+    }
+    GROUP_SCALE = {
+        "GALAXY_SOUNDS": 520.0,
+        "MICROCHIP": 900.0,
+        "OXYGEN_SHAKE": 620.0,
+        "PANEL": 620.0,
+        "PEBBLES": 1100.0,
+        "ROBOT": 620.0,
+        "SLEEP_POD": 650.0,
+        "SNACKPACK": 240.0,
+        "TRANSLATOR": 460.0,
+        "UV_VISOR": 650.0,
+    }
+    GROUP_LIMIT = {
+        "GALAXY_SOUNDS": 14,
+        "MICROCHIP": 14,
+        "OXYGEN_SHAKE": 14,
+        "PANEL": 14,
+        "PEBBLES": 16,
+        "ROBOT": 14,
+        "SLEEP_POD": 14,
+        "SNACKPACK": 16,
+        "TRANSLATOR": 16,
+        "UV_VISOR": 14,
+    }
+    ORDER_SIZE = 4
+
+    def run(self, state: TradingState):
+        result: Dict[str, List[Order]] = {}
+        mids = self.current_mids(state.order_depths)
+        group_mid: Dict[str, float] = {}
+
+        for group, products in self.FULL_GROUPS.items():
+            available = [mids[p] for p in products if p in mids]
+            if available:
+                group_mid[group] = sum(available) / len(available)
+
+        for product in self.ENABLED:
+            depth = state.order_depths.get(product)
+            if depth is None or product not in mids:
+                continue
+            group = self.PRODUCT_GROUP[product]
+            if group not in group_mid:
+                continue
+
+            orders = self.passive_quotes(product, group, mids[product], group_mid[group], depth, state)
+            if orders:
+                result[product] = orders
+
+        return result, 0, ""
+
+    def passive_quotes(
+        self,
+        product: str,
+        group: str,
+        mid: float,
+        family_mid: float,
+        depth: OrderDepth,
+        state: TradingState,
+    ) -> List[Order]:
+        if not depth.buy_orders or not depth.sell_orders:
+            return []
+
+        best_bid = max(depth.buy_orders)
+        best_ask = min(depth.sell_orders)
+        spread = best_ask - best_bid
+        if spread < 3:
+            return []
+
+        residual = mid - family_mid
+        bias = self.GROUP_DIRECTION[group] * residual / self.GROUP_SCALE[group]
+        position = state.position.get(product, 0)
+        limit = self.GROUP_LIMIT[group]
+        orders: List[Order] = []
+
+        buy_room = limit - position
+        sell_room = limit + position
+        buy_qty = min(self.ORDER_SIZE, buy_room, abs(depth.sell_orders[best_ask]))
+        sell_qty = min(self.ORDER_SIZE, sell_room, abs(depth.buy_orders[best_bid]))
+
+        if buy_qty > 0 and bias > -0.50:
+            orders.append(Order(product, best_bid + 1, buy_qty))
+        if sell_qty > 0 and bias < 0.50:
+            orders.append(Order(product, best_ask - 1, -sell_qty))
+
+        return orders
+
+    def current_mids(self, depths: Dict[str, OrderDepth]) -> Dict[str, float]:
+        mids: Dict[str, float] = {}
+        for product, depth in depths.items():
+            if depth.buy_orders and depth.sell_orders:
+                mids[product] = (max(depth.buy_orders) + min(depth.sell_orders)) / 2.0
+        return mids
