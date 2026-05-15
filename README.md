@@ -31,22 +31,26 @@ This repository contains research and algorithms for our team, Mystery Shack LLC
       <td align="center" valign="top" width="25%">
         <a href="https://github.com/tksoftw">
           <img src="https://avatars.githubusercontent.com/u/62570383?v=4&s=100" width="100px;" alt="tksoftw"/>
-          <br /><sub><b>Thomas Kennedy</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=tksoftw" title="Code">💻</a></sub></a>
+          <br /><sub><b>Thomas Kennedy</b></sub></a>
+        <br /><a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=tksoftw" title="Code">💻</a>
       </td>
       <td align="center" valign="top" width="25%">
         <a href="https://github.com/FluffyCube9343">
           <img src="https://avatars.githubusercontent.com/u/53585843?v=4&s=100" width="100px;" alt="FluffyCube9343"/>
-          <br /><sub><b>Vrishak Vemuri</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=FluffyCube9343" title="Code">💻</a></sub></a>
+          <br /><sub><b>Vrishak Vemuri</b></sub></a>
+        <br /><a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=FluffyCube9343" title="Code">💻</a>
       </td>
       <td align="center" valign="top" width="25%">
         <a href="https://github.com/LOB628">
           <img src="https://avatars.githubusercontent.com/LOB628?v=4&s=100" width="100px;" alt="LOB628"/>
-          <br /><sub><b>Liam Baird</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=LOB628" title="Code">💻</a></sub></a>
+          <br /><sub><b>Liam Baird</b></sub></a>
+        <br /><a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=LOB628" title="Code">💻</a>
       </td>
       <td align="center" valign="top" width="25%">
         <a href="https://github.com/Andre-Mao">
           <img src="https://avatars.githubusercontent.com/Andre-Mao?v=4&s=100" width="100px;" alt="Andre-Mao"/>
-          <br /><sub><b>Andre Mao</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=Andre-Mao" title="Code">💻</a></sub></a>
+          <br /><sub><b>Andre Mao</b></sub></a>
+        <br /><a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=Andre-Mao" title="Code">💻</a>
       </td>
     </tr>
   </tbody>
