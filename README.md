@@ -1,4 +1,6 @@
-# IMC Prosperity 4
+# Mystery Shack LLC
+
+This repository contains research and algorithms for our team, Mystery Shack LLC, in IMC Prosperity 4. Out of 18,803 teams, we placed 763rd globally and 199th in the USA, with an overall score of 257,957 XIREC.
 
 ## Quick Links
 [Official Discord Server](https://discord.gg/SABeB8uKxd) |
@@ -9,7 +11,7 @@
 ---
 
 ## Contents
-
+- [The Team](#the-team)
 - [Quickstart](#quickstart)
 - [Tools we use](#tools-we-use)
 - [Tools we built](#tools-we-built)
@@ -20,6 +22,35 @@
 - [Writeups & reference repos](#writeups--reference-repos)
 
 ---
+
+## The Team
+
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="25%">
+        <a href="https://github.com/tksoftw">
+          <img src="https://avatars.githubusercontent.com/u/62570383?v=4&s=100" width="100px;" alt="tksoftw"/>
+          <br /><sub><b>Thomas Kennedy</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=tksoftw" title="Code">💻</a></sub></a>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <a href="https://github.com/FluffyCube9343">
+          <img src="https://avatars.githubusercontent.com/u/53585843?v=4&s=100" width="100px;" alt="FluffyCube9343"/>
+          <br /><sub><b>Vrishak Vemuri</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=FluffyCube9343" title="Code">💻</a></sub></a>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <a href="https://github.com/LOB628">
+          <img src="https://avatars.githubusercontent.com/LOB628?v=4&s=100" width="100px;" alt="LOB628"/>
+          <br /><sub><b>Liam Baird</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=LOB628" title="Code">💻</a></sub></a>
+      </td>
+      <td align="center" valign="top" width="25%">
+        <a href="https://github.com/Andre-Mao">
+          <img src="https://avatars.githubusercontent.com/Andre-Mao?v=4&s=100" width="100px;" alt="Andre-Mao"/>
+          <br /><sub><b>Andre Mao</b> <a href="https://github.com/tksoftw/imc-prosperity-4/commits?author=Andre-Mao" title="Code">💻</a></sub></a>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 ## Quickstart
 
