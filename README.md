@@ -3,10 +3,10 @@
 This repository contains research and algorithms for our team, Mystery Shack LLC, in IMC Prosperity 4. Out of 18,803 teams, we placed 763rd globally and 199th in the USA, with an overall score of 257,957 XIREC.
 
 ## Quick Links
+[Hedgehogs writeup](examples/hedgehogs.md) |
 [Official Discord Server](https://discord.gg/SABeB8uKxd) |
 [Official Wiki](https://imc-prosperity.notion.site/prosperity-4-wiki) |
-[Online Visualizer/Leaderboard](https://prosperity.equirag.com/) |
-[Hedgehogs writeup](examples/hedgehogs.md)
+[Equirag Visualizer](https://prosperity.equirag.com/)
 
 ---
 
@@ -126,13 +126,13 @@ Dependency manager and venv, run from the repo root. Basically a pip replacement
 5. `uv remove <pkg>` remove a package
 
 
-### [Rust backtester](https://github.com/GeyzsoN/prosperity_rust_backtester)
+### [rust_backtester](https://crates.io/crates/rust_backtester)
 
-Note: We mostly use [rank_traders](#rank-traders) (which uses the rust backtester internally) for quick backtesting. But otherwise, run `rust_backtester --help` for more information.
+Note: We mostly use [rank_traders](#rank-traders) (which uses rust_backtester internally) for quick backtesting. But otherwise, run `rust_backtester --help` for more information.
 
-### [Online Visualizer](https://prosperity.equirag.com/)
+### [Online Visualizer/Leaderboard (Equirag)](https://prosperity.equirag.com/)
 
-Upload a submission `.log` to visualize trades, fills, and PnL. Also see an unofficial backtest leaderboard. Logs from the [rust backtester](#rust-backtester) are located in the [runs](runs/) folder (generated after at least one backtest is run).
+Upload a submission `.log` to visualize trades, fills, and PnL. Also see an unofficial backtest leaderboard. Logs from the [rust backtester](#rust_backtester) are located in the [runs](runs/) folder (generated after at least one backtest is run).
 
 ### Submission Libraries
 
@@ -240,7 +240,7 @@ Audit all traders for overfitting risk. Combines four signals into a 0–100 ris
 
 ### Create a venv alias
 
-Add to the following to your `~/.bashrc` file (or `~/.zshrc` on macOS):
+Add the following to your `~/.bashrc` file (or `~/.zshrc` on macOS):
 
 ```bash
 alias vv="source .venv/bin/activate"
