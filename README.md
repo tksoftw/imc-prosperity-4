@@ -13,7 +13,7 @@ This repository contains research and algorithms for our team, Mystery Shack LLC
 ## Contents
 - [The Team](#the-team)
 - [Quickstart](#quickstart)
-- [Tools we use](#tools-we-use)
+- [Tools we used](#tools-we-used)
 - [Tools we built](#tools-we-built)
 - [Optional additions](#optional-additions)
     - [Create a `.venv` alias](#create-a-venv-alias)
@@ -113,7 +113,7 @@ cargo install rust_backtester --locked
 
 ---
 
-## Tools we use
+## Tools we used
 
 ### [uv](https://docs.astral.sh/uv/)
 
