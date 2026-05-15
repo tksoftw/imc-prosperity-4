@@ -128,7 +128,8 @@ Dependency manager and venv, run from the repo root. Basically a pip replacement
 
 ### [Rust backtester](https://github.com/tksoftw/prosperity_rust_backtester)
 
-Note: We mostly use [rank_traders](#rank-traders) for quick backtesting. But otherwise, run `rust_backtester --help` for more information.
+Note: We mostly use [rank_traders](#rank-traders) (which uses the rust
+backtester internally) for quick backtesting. But otherwise, run `rust_backtester --help` for more information.
 
 ### [Online Visualizer](https://prosperity.equirag.com/)
 
