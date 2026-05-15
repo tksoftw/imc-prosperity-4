@@ -273,4 +273,4 @@ You'll see a green "WSL" indicator in the bottom-left once connected.
 9th overall, 2nd US.
 
 ### [Rust backtester](https://github.com/GeyzsoN/prosperity_rust_backtester)
-Source for the `rust_backtester` binary used by `rank_traders.py`.
+Source for the [`rust_backtester`](#rust_backtester) binary.
